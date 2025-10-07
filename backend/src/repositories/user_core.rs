@@ -12,6 +12,9 @@ use diesel::dsl::sql;
 use diesel::sql_types::BigInt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rand::{thread_rng, Rng};
+use hex;
+
 sql_function! {
     fn lower(x: Text) -> Text;
 }
@@ -63,6 +66,94 @@ impl UserCore {
             .first::<User>(&mut conn)
             .optional()?;
         Ok(user)
+    }
+
+    pub fn find_by_server_ip(&self, server_ip: &str) -> Result<Option<User>, DieselError> {
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        let user_id_opt: Option<i32> = user_settings::table
+            .filter(user_settings::server_ip.eq(Some(server_ip)))
+            .select(user_settings::user_id)
+            .first::<i32>(&mut conn)
+            .optional()?;
+        match user_id_opt {
+            Some(user_id) => {
+                let user = users::table
+                    .find(user_id)
+                    .first::<User>(&mut conn)
+                    .optional()?;
+                Ok(user)
+            }
+            None => Ok(None),
+        }
+    }
+    pub fn get_or_generate_magic_login_token(&self, user_id: i32) -> Result<String, DieselError> {
+        use crate::schema::user_settings;
+        self.ensure_user_settings_exist(user_id)?;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        let settings = user_settings::table
+            .filter(user_settings::user_id.eq(user_id))
+            .first::<UserSettings>(&mut conn)?;
+
+        let current_time = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i32;
+
+        if let (Some(token), Some(exp)) = (&settings.magic_login_token, settings.magic_login_token_expiration_timestamp) {
+            if exp > current_time {
+                return Ok(token.clone());
+            }
+        }
+
+        // Expired or missing: generate new
+        self.generate_magic_login_token(user_id)
+    }
+    pub fn generate_magic_login_token(&self, user_id: i32) -> Result<String, DieselError> {
+        use crate::schema::user_settings;
+        self.ensure_user_settings_exist(user_id)?;
+        let mut rng = thread_rng();
+        let token_bytes: [u8; 32] = rng.gen(); // 256-bit secure random
+        let token = hex::encode(token_bytes); // 64-char hex string
+        let expiration = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i32 + 900; // 15 minutes
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
+            .set((
+                user_settings::magic_login_token.eq(Some(token.clone())),
+                user_settings::magic_login_token_expiration_timestamp.eq(Some(expiration)),
+            ))
+            .execute(&mut conn)?;
+        Ok(token)
+    }
+
+    pub fn verify_and_invalidate_magic_login_token(&self, user_id: i32, token: &str) -> Result<UserSettings, DieselError> {
+        use crate::schema::user_settings;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        conn.transaction(|conn| {
+            // Get current settings
+            let settings = user_settings::table
+                .filter(user_settings::user_id.eq(user_id))
+                .first::<UserSettings>(conn)?;
+            // Verify
+            let current_time = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i32;
+            if settings.magic_login_token.as_ref() != Some(&token.to_string()) ||
+               settings.magic_login_token_expiration_timestamp.map_or(true, |exp| exp <= current_time) {
+                return Err(DieselError::NotFound); // Or custom error
+            }
+            // Invalidate
+            diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
+                .set((
+                    user_settings::magic_login_token.eq::<Option<String>>(None),
+                    user_settings::magic_login_token_expiration_timestamp.eq::<Option<i32>>(None),
+                ))
+                .execute(conn)?;
+            Ok(settings)
+        })
     }
 
     pub fn get_all_users(&self) -> Result<Vec<User>, DieselError> {
@@ -796,22 +887,6 @@ impl UserCore {
         })
     }
 
-    pub fn verify_pairing_code(&self, pairing_code: &str, server_instance_id: &str) -> Result<(bool, Option<String>), DieselError> {
-        // Try to find a user with the given pairing code
-        if let Some(user_id) = self.find_user_by_pairing_code(pairing_code)? {
-            // If user found, update their server instance ID
-            self.set_server_instance_id(user_id, server_instance_id)?;
-            
-            // Get the user's phone number
-            let user = self.find_by_id(user_id)?;
-            let phone_number = user.map(|u| u.phone_number);
-            
-            Ok((true, phone_number))
-        } else {
-            Ok((false, None))
-        }
-    }
-
     pub fn update_next_billing_date(&self, user_id: i32, timestamp: i32) -> Result<(), DieselError> {
         use crate::schema::users;
         let mut conn = self.pool.get().expect("Failed to get DB connection");
@@ -834,35 +909,6 @@ impl UserCore {
         Ok(())
     }
 
-    pub fn update_server_instance_last_ping(&self, user_id: i32, timestamp: i32) -> Result<(), DieselError> {
-        use crate::schema::user_settings;
-        let mut conn = self.pool.get().expect("Failed to get DB connection");
-        
-        // Ensure user settings exist
-        self.ensure_user_settings_exist(user_id)?;
-
-        // Update the last ping timestamp
-        diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
-            .set(user_settings::server_instance_last_ping_timestamp.eq(timestamp))
-            .execute(&mut conn)?;
-
-        Ok(())
-    }
-
-    pub fn update_server_key(&self, user_id: i32, server_key: &str) -> Result<(), DieselError> {
-        use crate::schema::user_settings;
-        let mut conn = self.pool.get().expect("Failed to get DB connection");
-        
-        // Ensure user settings exist
-        self.ensure_user_settings_exist(user_id)?;
-
-        diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
-            .set(user_settings::server_key.eq(server_key))
-            .execute(&mut conn)?;
-
-        Ok(())
-    }
-
     pub fn update_server_ip(&self, user_id: i32, server_ip: &str) -> Result<(), DieselError> {
         use crate::schema::user_settings;
         let mut conn = self.pool.get().expect("Failed to get DB connection");
@@ -878,6 +924,19 @@ impl UserCore {
         Ok(())
     }
 
+    pub fn get_server_ip(&self, user_id: i32) -> Result<Option<String>, DieselError> {
+        use crate::schema::user_settings;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        
+        // Search for a user_settings record with matching server_instance_id
+        let ip = user_settings::table
+            .filter(user_settings::user_id.eq(user_id))
+            .select(user_settings::server_ip)
+            .first::<Option<String>>(&mut conn)?;
+            
+        Ok(ip)
+    }
+
     pub fn get_next_billing_date(&self, user_id: i32) -> Result<Option<i32>, DieselError> {
         use crate::schema::users;
         let mut conn = self.pool.get().expect("Failed to get DB connection");
@@ -888,62 +947,6 @@ impl UserCore {
             .first::<Option<i32>>(&mut conn)?;
 
         Ok(timestamp)
-    }
-
-    pub fn generate_pairing_code(&self, user_id: i32) -> Result<String, DieselError> {
-        use crate::schema::user_settings;
-        use rand::{thread_rng, Rng};
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let mut conn = self.pool.get().expect("Failed to get DB connection");
-        
-        // Ensure user settings exist
-        self.ensure_user_settings_exist(user_id)?;
-
-        // Get current timestamp for uniqueness
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-
-        loop {
-            // Generate base random part (8 chars)
-            const CHARSET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-            let mut rng = thread_rng();
-            let random_part: String = (0..8)
-                .map(|_| {
-                    let idx = rng.gen_range(0..CHARSET.len());
-                    CHARSET[idx] as char
-                })
-                .collect();
-
-            // Create unique code combining:
-            // - First 2 chars: User-specific hash (to spread users across the space)
-            // - Next 4 chars: Timestamp-based (for temporal uniqueness)
-            // - Last 8 chars: Random (for entropy)
-            let user_hash = (user_id as u64 * 17 + 255) % 1296; // 36^2 possibilities
-            let time_hash = timestamp % 1679616; // 36^4 possibilities
-            
-            let user_part = Self::encode_base36(user_hash, 2);
-            let time_part = Self::encode_base36(time_hash, 4);
-            
-            let code = format!("{}{}{}", user_part, time_part, random_part);
-
-            // Verify this code doesn't exist anywhere in the database
-            let exists = user_settings::table
-                .filter(user_settings::server_instance_id.eq(&code))
-                .count()
-                .get_result::<i64>(&mut conn)?;
-
-            if exists == 0 {
-                // Update the user settings with the new code
-                diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
-                    .set(user_settings::server_instance_id.eq(Some(&code)))
-                    .execute(&mut conn)?;
-
-                return Ok(code);
-            }
-            // If code exists (extremely unlikely), loop will continue and generate a new one
-        }
     }
 
     // Helper function to encode numbers in base36 with fixed width
@@ -958,20 +961,6 @@ impl UserCore {
         }
         
         result.into_iter().collect()
-    }
-
-    pub fn find_user_by_pairing_code(&self, pairing_code: &str) -> Result<Option<i32>, DieselError> {
-        use crate::schema::user_settings;
-        let mut conn = self.pool.get().expect("Failed to get DB connection");
-        
-        // Search for a user_settings record with matching server_instance_id
-        let user_id = user_settings::table
-            .filter(user_settings::server_instance_id.eq(pairing_code))
-            .select(user_settings::user_id)
-            .first::<i32>(&mut conn)
-            .optional()?;
-            
-        Ok(user_id)
     }
 
     pub fn get_openrouter_api_key(&self, user_id: i32) -> Result<String, Box<dyn Error>> {
@@ -1120,42 +1109,6 @@ impl UserCore {
             .set(user_settings::elevenlabs_phone_number_id.eq(Some(phone_number_id)))
             .execute(&mut conn)?;
 
-        Ok(())
-    }
-
-
-    pub fn set_server_instance_id(&self, user_id: i32, server_instance_id: &str) -> Result<(), DieselError> {
-        use crate::schema::user_settings;
-        let mut conn = self.pool.get().expect("Failed to get DB connection");
-        
-        // Ensure user settings exist
-        self.ensure_user_settings_exist(user_id)?;
-
-        // Update the server_instance_id
-        diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
-            .set(user_settings::server_instance_id.eq(Some(server_instance_id)))
-            .execute(&mut conn)?;
-
-        Ok(())
-    }
-
-    // for self hosted instance
-    pub fn update_instance_id_to_self_hosted(&self, server_instance_id: &str) -> Result<(), DieselError> {
-        use crate::schema::{users, user_settings};
-        let mut conn = self.pool.get().expect("Failed to get DB connection");
-        
-        // Get the first user from the users table
-        let first_user = users::table
-            .order(users::id.asc())
-            .first::<User>(&mut conn)?;
-
-        // Ensure user settings exist for this user
-        self.ensure_user_settings_exist(first_user.id)?;
-
-        // Update the server_instance_id for this user
-        diesel::update(user_settings::table.filter(user_settings::user_id.eq(first_user.id)))
-            .set(user_settings::server_instance_id.eq(Some(server_instance_id)))
-            .execute(&mut conn)?;
         Ok(())
     }
 

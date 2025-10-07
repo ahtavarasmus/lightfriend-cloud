@@ -6,7 +6,7 @@ use yew_router::components::Link;
 use crate::config;
 use web_sys::{window, HtmlInputElement};
 use gloo_net::http::Request;
-use serde_json::json;
+use serde_json::{json, Value};
 use wasm_bindgen_futures::spawn_local;
 use crate::pages::landing::Landing;
 use crate::profile::settings::SettingsPage;
@@ -29,7 +29,7 @@ fn render_notification_settings(profile: Option<&UserProfile>) -> Html {
                                                 Callback::from(move |e: Event| {
                                                     let input: HtmlInputElement = e.target_unchecked_into();
                                                     let notify = input.checked();
-                                                
+                                              
                                                     if let Some(token) = window()
                                                         .and_then(|w| w.local_storage().ok())
                                                         .flatten()
@@ -79,14 +79,38 @@ pub fn is_logged_in() -> bool {
     }
     false
 }
+#[derive(Properties, PartialEq, Clone)]
+pub struct MagicLinkProps {
+    pub link: Option<String>,
+    pub error: Option<String>,
+    pub on_regenerate: Callback<()>,
+}
 #[function_component]
-pub fn HostInstructionsButton() -> Html {
+fn MagicLinkSection(props: &MagicLinkProps) -> Html {
+    let link = &props.link;
+    let on_regenerate = props.on_regenerate.clone();
     html! {
-        <div class="host-instructions-container">
-            <Link<Route> to={Route::SelfHostInstructions} classes="host-instructions-button">
-                <span class="button-text">{"View Self-Host Instructions"}</span>
-                <span class="button-icon">{"→"}</span>
-            </Link<Route>>
+        <div class="magic-link-item" style="position: relative;">
+            <span class="credit-label">{"Self-Hosted Login Link"}</span>
+            if let Some(l) = link.as_ref() {
+                <>
+                    <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;">
+                        <a href={l.clone()} target="_blank" rel="noopener noreferrer" style="color: #7EB2FF; text-decoration: none; font-size: 0.9rem; word-break: break-all; max-width: 200px;">
+                            {l.clone()}
+                        </a>
+                        <button onclick={Callback::from(move |_| on_regenerate.emit(()))} style="padding: 0.25rem 0.5rem; background: rgba(255, 68, 68, 0.2); border: 1px solid rgba(255, 68, 68, 0.3); border-radius: 4px; color: white; font-size: 0.8rem; cursor: pointer;">
+                            {"Regenerate"}
+                        </button>
+                    </div>
+                </>
+            } else if let Some(err) = props.error.as_ref() {
+                <span style="color: #ff4444; font-size: 0.8rem;">{err}</span>
+            } else {
+                <span style="color: #999; font-size: 0.9rem;">{"Loading..."}</span>
+            }
+            <div class="credit-tooltip">
+                {"Click the link to log in to your self-hosted instance. Regenerate if expired or compromised. Single-use for security."}
+            </div>
         </div>
     }
 }
@@ -144,16 +168,22 @@ pub fn Home() -> Html {
     let is_expanded = use_state(|| false);
     let active_tab = use_state(|| DashboardTab::Connections);
     let navigator = use_navigator().unwrap();
+    let magic_link = use_state(|| None::<String>);
+    let magic_error = use_state(|| None::<String>);
     // Single profile fetch effect
     {
         let profile_data = profile_data.clone();
         let user_verified = user_verified.clone();
         let error = error.clone();
-    
+        let magic_link = magic_link.clone();
+        let magic_error = magic_error.clone();
+  
         use_effect_with_deps(move |_| {
             let profile_data = profile_data.clone();
             let user_verified = user_verified.clone();
             let error = error.clone();
+            let magic_link = magic_link.clone();
+            let magic_error = magic_error.clone();
             wasm_bindgen_futures::spawn_local(async move {
                 if let Some(token) = window()
                     .and_then(|w| w.local_storage().ok())
@@ -176,12 +206,43 @@ pub fn Home() -> Html {
                                 }
                                 return;
                             }
-                        
+                      
                             match response.json::<UserProfile>().await {
                                 Ok(profile) => {
                                     user_verified.set(profile.verified);
-                                    profile_data.set(Some(profile));
+                                    profile_data.set(Some(profile.clone()));
                                     error.set(None);
+                                    // Fetch magic link if tier 3
+                                    if profile.sub_tier.as_deref() == Some("tier 3") {
+                                        let token = token.clone();
+                                        spawn_local(async move {
+                                            match Request::get(&format!("{}/api/profile/magic-link", config::get_backend_url()))
+                                                .header("Authorization", &format!("Bearer {}", token))
+                                                .send()
+                                                .await
+                                            {
+                                                Ok(resp) => {
+                                                    if resp.ok() {
+                                                        match resp.json::<Value>().await {
+                                                            Ok(data) => {
+                                                                if let Some(l) = data["link"].as_str() {
+                                                                    magic_link.set(Some(l.to_string()));
+                                                                }
+                                                            }
+                                                            Err(_) => {
+                                                                magic_error.set(Some("Failed to parse link".to_string()));
+                                                            }
+                                                        }
+                                                    } else {
+                                                        magic_error.set(Some("Failed to fetch link".to_string()));
+                                                    }
+                                                }
+                                                Err(_) => {
+                                                    magic_error.set(Some("Network error".to_string()));
+                                                }
+                                            }
+                                        });
+                                    }
                                 }
                                 Err(_) => {
                                     error.set(Some("Failed to parse profile data".to_string()));
@@ -194,7 +255,7 @@ pub fn Home() -> Html {
                     }
                 }
             });
-        
+      
             || ()
         }, ());
     }
@@ -234,48 +295,10 @@ pub fn Home() -> Html {
                                         {
                                             if let Some(ref tier) = profile.sub_tier {
                                                 match tier.as_str() {
-                                                    "self_hosted" => html! {
-                                                        <>
-                                                            {
-                                                                if profile.days_until_billing.is_some() {
-                                                                    html! {
-                                                                        <MonthlyCredits profile={profile.clone()} />
-                                                                    }
-                                                                } else if profile.credits_left > 0.0 {
-                                                                    html! { <MonthlyCredits profile={profile.clone()} /> }
-                                                                } else {
-                                                                    html! {}
-                                                                }
-                                                            }
-                                                            {
-                                                                if profile.credits > 0.00 {
-                                                                    html! {
-                                                                        <div class="credit-item" tabindex="0">
-                                                                            <span class="credit-label">{"Message Credits"}</span>
-                                                                            <span class="credit-value">{format!("{:.2}€", profile.credits)}</span>
-                                                                            <div class="credit-tooltip">
-                                                                                {"Your message credits. Checkout how they are used in the pricing page under 'Message Costs (Credits)'."}
-                                                                            </div>
-                                                                        </div>
-                                                                    }
-                                                                } else {
-                                                                    html! {}
-                                                                }
-                                                            }
-                                                            <div class="credit-item" tabindex="0">
-                                                                <span class="credit-label">{"Self-Hosted Instance"}</span>
-                                                                <HostInstructionsButton />
-                                                            </div>
-                                                        </>
-                                                    },
                                                     "tier 3" => html! {
                                                         <>
                                                             {
-                                                                if profile.days_until_billing.is_some() {
-                                                                    html! {
-                                                                        <MonthlyCredits profile={profile.clone()} />
-                                                                    }
-                                                                } else if profile.credits_left > 0.0 {
+                                                                if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
                                                                     html! { <MonthlyCredits profile={profile.clone()} /> }
                                                                 } else {
                                                                     html! {}
@@ -296,10 +319,48 @@ pub fn Home() -> Html {
                                                                     html! {}
                                                                 }
                                                             }
-                                                            <div class="credit-item" tabindex="0">
-                                                                <span class="credit-label">{"Server Instance"}</span>
-                                                                <HostInstructionsButton />
-                                                            </div>
+                                                            <MagicLinkSection
+                                                                link={(*magic_link).clone()}
+                                                                error={(*magic_error).clone()}
+                                                                on_regenerate={{
+                                                                    let magic_link = magic_link.clone();
+                                                                    let magic_error = magic_error.clone();
+                                                                    let token = window().and_then(|w| w.local_storage().ok()).flatten().and_then(|s| s.get_item("token").ok()).flatten().unwrap_or_default();
+                                                                    Callback::from(move |_| {
+                                                                        let magic_link = magic_link.clone();
+                                                                        let magic_error = magic_error.clone();
+                                                                        let token = token.clone();
+                                                                        spawn_local(async move {
+                                                                            match Request::get(&format!("{}/api/profile/magic-link?regenerate=true", config::get_backend_url()))
+                                                                                .header("Authorization", &format!("Bearer {}", token))
+                                                                                .send()
+                                                                                .await
+                                                                            {
+                                                                                Ok(resp) => {
+                                                                                    if resp.ok() {
+                                                                                        match resp.json::<Value>().await {
+                                                                                            Ok(data) => {
+                                                                                                if let Some(new_link) = data["link"].as_str() {
+                                                                                                    magic_link.set(Some(new_link.to_string()));
+                                                                                                    magic_error.set(None);
+                                                                                                }
+                                                                                            }
+                                                                                            Err(_) => {
+                                                                                                magic_error.set(Some("Failed to regenerate".to_string()));
+                                                                                            }
+                                                                                        }
+                                                                                    } else {
+                                                                                        magic_error.set(Some("Failed to regenerate".to_string()));
+                                                                                    }
+                                                                                }
+                                                                                Err(_) => {
+                                                                                    magic_error.set(Some("Network error".to_string()));
+                                                                                }
+                                                                            }
+                                                                        });
+                                                                    })
+                                                                }}
+                                                            />
                                                         </>
                                                     },
                                                     _ => {
@@ -310,7 +371,13 @@ pub fn Home() -> Html {
                                                                         if prefix == "+1" {
                                                                             html! {
                                                                                 <>
-                                                                                    <MonthlyCredits profile={profile.clone()} />
+                                                                                    {
+                                                                                        if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
+                                                                                            html! { <MonthlyCredits profile={profile.clone()} /> }
+                                                                                        } else {
+                                                                                            html! {}
+                                                                                        }
+                                                                                    }
                                                                                     {
                                                                                         if profile.credits > 0.00 {
                                                                                             html! {
@@ -332,11 +399,7 @@ pub fn Home() -> Html {
                                                                             html! {
                                                                                 <>
                                                                                     {
-                                                                                        if profile.days_until_billing.is_some() {
-                                                                                            html! {
-                                                                                                <MonthlyCredits profile={profile.clone()} />
-                                                                                            }
-                                                                                        } else if profile.credits_left > 0.0 {
+                                                                                        if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
                                                                                             html! { <MonthlyCredits profile={profile.clone()} /> }
                                                                                         } else {
                                                                                             html! {}
@@ -365,11 +428,7 @@ pub fn Home() -> Html {
                                                                         html! {
                                                                             <>
                                                                                 {
-                                                                                    if profile.days_until_billing.is_some() {
-                                                                                        html! {
-                                                                                            <MonthlyCredits profile={profile.clone()} />
-                                                                                        }
-                                                                                    } else if profile.credits_left > 0.0 {
+                                                                                    if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
                                                                                         html! { <MonthlyCredits profile={profile.clone()} /> }
                                                                                     } else {
                                                                                         html! {}
@@ -427,11 +486,7 @@ pub fn Home() -> Html {
                                                 html! {
                                                     <>
                                                         {
-                                                            if profile.days_until_billing.is_some() {
-                                                                html! {
-                                                                    <MonthlyCredits profile={profile.clone()} />
-                                                                }
-                                                            } else if profile.credits_left > 0.0 {
+                                                            if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
                                                                 html! { <MonthlyCredits profile={profile.clone()} /> }
                                                             } else {
                                                                 html! {}
@@ -471,71 +526,74 @@ pub fn Home() -> Html {
                     </div>
                     {
                         if let Some(profile) = (*profile_data).as_ref() {
-                            if profile.sub_tier.is_some() {
-                                let phone_prefix = if profile.phone_number_country == Some("US".to_string()) {
-                                    Some(("+1", "+18153684737"))
-                                } else if profile.phone_number_country == Some("CA".to_string()) {
-                                    Some(("+1", "+12892066453"))
-                                } else if profile.phone_number_country == Some("FI".to_string()) {
-                                    Some(("+358", "+358454901522"))
-                                } else if profile.phone_number_country == Some("NL".to_string()) {
-                                    Some(("+31", "+3197010207742"))
-                                } else if profile.phone_number_country == Some("UK".to_string()) {
-                                    Some(("+44", "+447383240344"))
-                                } else if profile.phone_number_country == Some("AU".to_string()) {
-                                    Some(("+61", "+61489260976"))
-                                } else {
-                                    None
-                                };
-                                let twilio_setup_complete = profile.twilio_sid.is_some() && profile.twilio_token.is_some();
-                                html! {
-                                    <div class="phone-selector">
-                                        <div class="preferred-number-display">
-                                            {
-                                                if let Some((_, hardcoded_number)) = phone_prefix {
-                                                    if profile.id == 1 {
-                                                        html! {
-                                                            <>
-                                                            <span class="preferred-number-label configured">
-                                                                {format!("Your lightfriend's Number: {}", hardcoded_number)}
-                                                            </span>
-                                                            <a href="/admin">{"admin page"}</a>
-                                                            </>
-                                                        }
-                                                     } else {
-                                                        html! {
-                                                            <span class="preferred-number-label configured">
-                                                                {format!("Your lightfriend's Number: {}", hardcoded_number)}
-                                                            </span>
-                                                        }
-                                                     }
-
-                                                } else {
-                                                    if twilio_setup_complete {
-                                                        if let Some(twilio_number) = &profile.preferred_number {
+                            if let Some(ref tier) = profile.sub_tier {
+                                if tier.as_str() != "tier 3" {
+                                    let phone_prefix = if profile.phone_number_country == Some("US".to_string()) {
+                                        Some(("+1", "+18153684737"))
+                                    } else if profile.phone_number_country == Some("CA".to_string()) {
+                                        Some(("+1", "+12892066453"))
+                                    } else if profile.phone_number_country == Some("FI".to_string()) {
+                                        Some(("+358", "+358454901522"))
+                                    } else if profile.phone_number_country == Some("NL".to_string()) {
+                                        Some(("+31", "+3197010207742"))
+                                    } else if profile.phone_number_country == Some("UK".to_string()) {
+                                        Some(("+44", "+447383240344"))
+                                    } else if profile.phone_number_country == Some("AU".to_string()) {
+                                        Some(("+61", "+61489260976"))
+                                    } else {
+                                        None
+                                    };
+                                    let twilio_setup_complete = profile.twilio_sid.is_some() && profile.twilio_token.is_some();
+                                    html! {
+                                        <div class="phone-selector">
+                                            <div class="preferred-number-display">
+                                                {
+                                                    if let Some((_, hardcoded_number)) = phone_prefix {
+                                                        if profile.id == 1 {
+                                                            html! {
+                                                                <>
+                                                                <span class="preferred-number-label configured">
+                                                                    {format!("Your lightfriend's Number: {}", hardcoded_number)}
+                                                                </span>
+                                                                <a href="/admin">{"admin page"}</a>
+                                                                </>
+                                                            }
+                                                         } else {
                                                             html! {
                                                                 <span class="preferred-number-label configured">
-                                                                    {format!("Your Twilio Number: {}", twilio_number)}
+                                                                    {format!("Your lightfriend's Number: {}", hardcoded_number)}
                                                                 </span>
+                                                            }
+                                                         }
+                                                    } else {
+                                                        if twilio_setup_complete {
+                                                            if let Some(twilio_number) = &profile.preferred_number {
+                                                                html! {
+                                                                    <span class="preferred-number-label configured">
+                                                                        {format!("Your Twilio Number: {}", twilio_number)}
+                                                                    </span>
+                                                                }
+                                                            } else {
+                                                                html! {
+                                                                    <span class="preferred-number-label not-configured">
+                                                                        {"No Twilio Number configured"}
+                                                                    </span>
+                                                                }
                                                             }
                                                         } else {
                                                             html! {
                                                                 <span class="preferred-number-label not-configured">
-                                                                    {"No Twilio Number configured"}
+                                                                    {"Twilio setup not complete"}
                                                                 </span>
                                                             }
                                                         }
-                                                    } else {
-                                                        html! {
-                                                            <span class="preferred-number-label not-configured">
-                                                                {"Twilio setup not complete"}
-                                                            </span>
-                                                        }
                                                     }
                                                 }
-                                            }
+                                            </div>
                                         </div>
-                                    </div>
+                                    }
+                                } else {
+                                    html! {}
                                 }
                             } else {
                                 html! {}
@@ -544,102 +602,114 @@ pub fn Home() -> Html {
                             html! {}
                         }
                     }
-                
-                
-                    <br/>
-                    <br/>
-                    <div class="dashboard-tabs">
-                        <button
-                            class={classes!("tab-button", (*active_tab == DashboardTab::Connections).then(|| "active"))}
-                            onclick={{
-                                let active_tab = active_tab.clone();
-                                Callback::from(move |_| active_tab.set(DashboardTab::Connections))
-                            }}
-                        >
-                            {"Connections"}
-                        </button>
-                        <button
-                            class={classes!("tab-button", (*active_tab == DashboardTab::Personal).then(|| "active"))}
-                            onclick={{
-                                let active_tab = active_tab.clone();
-                                Callback::from(move |_| active_tab.set(DashboardTab::Personal))
-                            }}
-                        >
-                            {"Personal"}
-                        </button>
-                    </div>
                     {
-                        match *active_tab {
-                            DashboardTab::Connections => html! {
-                                <div class="connections-tab">
-                                    {
-                                        if let Some(profile) = (*profile_data).as_ref() {
-                                            html! {
-                                                <Connect user_id={profile.id} sub_tier={profile.sub_tier.clone()} discount={profile.discount} phone_number={profile.phone_number.clone()} estimated_monitoring_cost={profile.estimated_monitoring_cost.clone()}/>
-                                            }
-                                        } else {
-                                            html! {}
-                                        }
-                                    }
-                                    <div class="feature-status">
-                                        <p class="feature-suggestion">
-                                            {"Have a feature in mind? Email your suggestions to "}
-                                            <a href="mailto:rasmus@ahtava.com">{"rasmus@ahtava.com"}</a>
-                                        </p>
-                                        <h4>{"Tips"}</h4>
-                                        <ul>
-                                            <li>{"You can ask multiple questions in a single SMS to save money. Note that answers will be less detailed due to SMS character limits. Example: 'did sam altman tweet today and whats the weather?' -> 'Sam Altman hasn't tweeted today. Last tweet was on March 3, a cryptic \"!!!\" image suggesting a major AI development. Weather in Tampere: partly cloudy, 0°C, 82% humidity, wind at 4 m/s.'"}</li>
-                                            <li>{"Start your message with 'forget' to make the assistant forget previous conversation context and start fresh. Note that this only applies to that one message - the next message will again remember previous context."}</li>
-                                        </ul>
-                                    </div>
-                                    {
-                                        if let Some(profile) = (*profile_data).as_ref() {
-                                            if profile.sub_tier.is_some() {
-                                                html! {
-                                                    <div class="subscriber-promo">
-                                                        <p>{"Subscribed users can get 20% off from Cold Turkey Blocker Pro with code LIGHTFRIEND"}</p>
-                                                        <a href="https://getcoldturkey.com" target="_blank" rel="noopener noreferrer">{"getcoldturkey.com"}</a>
+                        if let Some(profile) = (*profile_data).as_ref() {
+                            if profile.sub_tier.as_deref() != Some("tier 3") {
+                                html! {
+                                    <>
+                                        <br/>
+                                        <br/>
+                                        <div class="dashboard-tabs">
+                                            <button
+                                                class={classes!("tab-button", (*active_tab == DashboardTab::Connections).then(|| "active"))}
+                                                onclick={{
+                                                    let active_tab = active_tab.clone();
+                                                    Callback::from(move |_| active_tab.set(DashboardTab::Connections))
+                                                }}
+                                            >
+                                                {"Connections"}
+                                            </button>
+                                            <button
+                                                class={classes!("tab-button", (*active_tab == DashboardTab::Personal).then(|| "active"))}
+                                                onclick={{
+                                                    let active_tab = active_tab.clone();
+                                                    Callback::from(move |_| active_tab.set(DashboardTab::Personal))
+                                                }}
+                                            >
+                                                {"Personal"}
+                                            </button>
+                                        </div>
+                                        {
+                                            match *active_tab {
+                                                DashboardTab::Connections => html! {
+                                                    <div class="connections-tab">
+                                                        {
+                                                            if let Some(profile) = (*profile_data).as_ref() {
+                                                                html! {
+                                                                    <Connect user_id={profile.id} sub_tier={profile.sub_tier.clone()} discount={profile.discount} phone_number={profile.phone_number.clone()} estimated_monitoring_cost={profile.estimated_monitoring_cost.clone()}/>
+                                                                }
+                                                            } else {
+                                                                html! {}
+                                                            }
+                                                        }
+                                                        <div class="feature-status">
+                                                            <p class="feature-suggestion">
+                                                                {"Have a feature in mind? Email your suggestions to "}
+                                                                <a href="mailto:rasmus@ahtava.com">{"rasmus@ahtava.com"}</a>
+                                                            </p>
+                                                            <h4>{"Tips"}</h4>
+                                                            <ul>
+                                                                <li>{"You can ask multiple questions in a single SMS to save money. Note that answers will be less detailed due to SMS character limits. Example: 'did sam altman tweet today and whats the weather?' -> 'Sam Altman hasn't tweeted today. Last tweet was on March 3, a cryptic \"!!!\" image suggesting a major AI development. Weather in Tampere: partly cloudy, 0°C, 82% humidity, wind at 4 m/s.'"}</li>
+                                                                <li>{"Start your message with 'forget' to make the assistant forget previous conversation context and start fresh. Note that this only applies to that one message - the next message will again remember previous context."}</li>
+                                                            </ul>
+                                                        </div>
+                                                        {
+                                                            if let Some(profile) = (*profile_data).as_ref() {
+                                                                if profile.sub_tier.is_some() {
+                                                                    html! {
+                                                                        <div class="subscriber-promo">
+                                                                            <p>{"Subscribed users can get 20% off from Cold Turkey Blocker Pro with code LIGHTFRIEND"}</p>
+                                                                            <a href="https://getcoldturkey.com" target="_blank" rel="noopener noreferrer">{"getcoldturkey.com"}</a>
+                                                                        </div>
+                                                                    }
+                                                                } else {
+                                                                    html! {}
+                                                                }
+                                                            } else {
+                                                                html! {}
+                                                            }
+                                                        }
+                                                        {
+                                                            if let Some(profile) = (*profile_data).as_ref() {
+                                                                render_notification_settings(Some(profile))
+                                                            } else {
+                                                                html! {}
+                                                            }
+                                                        }
+                                                    </div>
+                                                },
+                                                DashboardTab::Personal => html! {
+                                                    <div class="personal-tab">
+                                                        {
+                                                            if let Some(profile) = (*profile_data).as_ref() {
+                                                                html! {
+                                                                    <SettingsPage
+                                                                        user_profile={profile.clone()}
+                                                                        on_profile_update={{
+                                                                            let profile_data = profile_data.clone();
+                                                                            Callback::from(move |updated_profile| {
+                                                                                profile_data.set(Some(updated_profile));
+                                                                            })
+                                                                        }}
+                                                                    />
+                                                                }
+                                                            } else {
+                                                                html! {
+                                                                    <div class="loading-profile">{"Loading profile..."}</div>
+                                                                }
+                                                            }
+                                                        }
                                                     </div>
                                                 }
-                                            } else {
-                                                html! {}
-                                            }
-                                        } else {
-                                            html! {}
-                                        }
-                                    }
-                                    {
-                                        if let Some(profile) = (*profile_data).as_ref() {
-                                            render_notification_settings(Some(profile))
-                                        } else {
-                                            html! {}
-                                        }
-                                    }
-                                </div>
-                            },
-                            DashboardTab::Personal => html! {
-                                <div class="personal-tab">
-                                    {
-                                        if let Some(profile) = (*profile_data).as_ref() {
-                                            html! {
-                                                <SettingsPage
-                                                    user_profile={profile.clone()}
-                                                    on_profile_update={{
-                                                        let profile_data = profile_data.clone();
-                                                        Callback::from(move |updated_profile| {
-                                                            profile_data.set(Some(updated_profile));
-                                                        })
-                                                    }}
-                                                />
-                                            }
-                                        } else {
-                                            html! {
-                                                <div class="loading-profile">{"Loading profile..."}</div>
                                             }
                                         }
-                                    }
-                                </div>
+                                    </>
+                                }
+                            } else {
+                                html! {}
                             }
+                        } else {
+                            html! {}
                         }
                     }
                     <footer class="dashboard-footer">
@@ -689,41 +759,28 @@ pub fn Home() -> Html {
                             transition: all 0.3s ease;
                             outline: none;
                         }
-                        .host-instructions-container {
-                            width: 100%;
-                            margin-top: 1rem;
-                        }
-                        .host-instructions-button {
-                            display: flex;
-                            align-items: center;
-                            justify-content: center;
-                            gap: 0.5rem;
-                            width: 100%;
-                            padding: 1rem;
-                            background: linear-gradient(45deg, #1E90FF, #4169E1);
-                            color: white;
-                            text-decoration: none;
+                        .magic-link-item {
+                            background: rgba(30, 144, 255, 0.05);
+                            border: 1px solid rgba(30, 144, 255, 0.1);
                             border-radius: 8px;
-                            font-size: 1rem;
-                            font-weight: 500;
+                            padding: 0.75rem;
+                            display: flex;
+                            flex-direction: column;
+                            align-items: flex-start;
+                            gap: 0.25rem;
+                            position: relative;
+                            cursor: pointer;
                             transition: all 0.3s ease;
-                            box-shadow: 0 2px 8px rgba(30, 144, 255, 0.2);
+                            outline: none;
+                            grid-column: 1 / -1;
                         }
-                        .host-instructions-button:hover {
-                            transform: translateY(-2px);
-                            box-shadow: 0 4px 12px rgba(30, 144, 255, 0.3);
-                            background: linear-gradient(45deg, #4169E1, #1E90FF);
+                        .magic-link-item:hover {
+                            background: rgba(30, 144, 255, 0.1);
+                            border-color: rgba(30, 144, 255, 0.2);
                         }
-                        .button-text {
-                            flex-grow: 1;
-                            text-align: center;
-                        }
-                        .button-icon {
-                            font-size: 1.2rem;
-                            transition: transform 0.3s ease;
-                        }
-                        .host-instructions-button:hover .button-icon {
-                            transform: translateX(4px);
+                        .magic-link-item button:hover {
+                            background: rgba(30, 144, 255, 0.3) !important;
+                            transform: translateY(-1px);
                         }
                         .credit-item:hover,
                         .credit-item:focus {

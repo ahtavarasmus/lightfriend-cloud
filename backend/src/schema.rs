@@ -236,8 +236,6 @@ diesel::table! {
         server_url -> Nullable<Text>,
         encrypted_geoapify_key -> Nullable<Text>,
         encrypted_pirate_weather_key -> Nullable<Text>,
-        server_instance_id -> Nullable<Text>,
-        server_instance_last_ping_timestamp -> Nullable<Integer>,
         server_ip -> Nullable<Text>,
         encrypted_textbee_device_id -> Nullable<Text>,
         encrypted_textbee_api_key -> Nullable<Text>,
@@ -245,7 +243,8 @@ diesel::table! {
         proactive_agent_on -> Bool,
         notify_about_calls -> Bool,
         action_on_critical_message -> Nullable<Text>,
-        server_key -> Nullable<Text>,
+        magic_login_token -> Nullable<Text>,
+        magic_login_token_expiration_timestamp -> Nullable<Integer>,
     }
 }
 

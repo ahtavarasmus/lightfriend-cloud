@@ -231,7 +231,6 @@ use matrix_sdk::media::MediaFormat;
 use matrix_sdk::ruma::events::room::MediaSource;
 use matrix_sdk::media::MediaRequestParameters;
 use base64::engine::general_purpose::STANDARD as Base64Engine;
-use matrix_sdk::ruma::MxcUri;
 use base64::Engine;
 
 pub async fn start_signal_connection(

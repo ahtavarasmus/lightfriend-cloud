@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use axum::{
-    extract::{Path, Query, State, Json},
+    extract::{State, Json},
     http::StatusCode,
     response::Json as AxumJson,
 };
@@ -10,12 +10,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use imap;
 use native_tls::TlsConnector;
-use base64;
 use mail_parser::{self, MimeHeaders};
 use crate::{
     AppState,
     handlers::auth_middleware::AuthUser,
-    utils::imap_utils::upload_media_to_twilio,
 };
 use lettre::{Message, Transport};
 use lettre::transport::smtp::authentication::Credentials;

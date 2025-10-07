@@ -242,7 +242,6 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
                                     save_context: Some(*save_context),
                                     days_until_billing: (*user_profile).days_until_billing.clone(),
                                     digests_reserved: (*user_profile).digests_reserved,
-                                    pairing_code: (*user_profile).pairing_code.clone(),
                                     server_ip: (*user_profile).server_ip.clone(),
                                     twilio_sid: (*user_profile).twilio_sid.clone(),
                                     twilio_token: (*user_profile).twilio_token.clone(),

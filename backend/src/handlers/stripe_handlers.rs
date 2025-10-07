@@ -12,8 +12,6 @@ use stripe::{
     Subscription,
     UpdateSubscription,
     ListSubscriptions,
-    Invoice,
-    ListInvoiceItems,
 };
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 pub enum SubscriptionType {
@@ -874,9 +872,6 @@ pub async fn stripe_webhook(
                             // Update subscription tier to tier 3
                             if let Err(e) = state.user_repository.set_subscription_tier(user.id, Some("tier 3")) {
                                 tracing::error!("Failed to update subscription tier: {}", e);
-                            }
-                            if let Err(e) = state.user_core.generate_pairing_code(user.id) {
-                                tracing::error!("Failed to generate pairing code: {}", e);
                             }
                         } else if sub_info.tier == "tier 2" {
                             // legacy sub

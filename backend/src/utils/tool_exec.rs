@@ -5,7 +5,7 @@ use std::error::Error;
 use crate::tool_call_utils::utils::create_openai_client;
 use openai_api_rs::v1::chat_completion::{self, ChatCompletionMessage, MessageRole, Content};
 
-use serde_json::{json, Value};
+use serde_json::json;
 
 pub async fn handle_firecrawl_search(
     query: String,

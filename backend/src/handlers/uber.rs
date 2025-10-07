@@ -4,13 +4,11 @@ use axum::{
     response::Json as AxumJson,
 };
 use reqwest;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use std::env;
-use std::error::Error;
 use std::sync::Arc;
 use tracing;
-use urlencoding;
 
 use crate::AppState;
 use crate::handlers::auth_middleware::AuthUser;

@@ -211,10 +211,8 @@ pub async fn search_whatsapp_rooms_handler(
 use axum::{
     extract::Query,
     http::StatusCode,
-    Extension,
 };
 use crate::{
-    models::user_models::User,
     utils::bridge::{search_bridge_rooms, BridgeRoom},
 };
 

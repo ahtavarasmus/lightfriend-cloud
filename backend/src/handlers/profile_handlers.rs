@@ -78,7 +78,6 @@ pub struct ProfileResponse {
     save_context: Option<i32>,
     days_until_billing: Option<i32>,
     digests_reserved: i32,
-    pairing_code: Option<String>,
     server_ip: Option<String>,
     twilio_sid: Option<String>,
     twilio_token: Option<String>,
@@ -89,7 +88,6 @@ pub struct ProfileResponse {
     location: Option<String>,
     nearby_places: Option<String>,
     phone_number_country: Option<String>,
-    server_key: Option<String>, 
 }
 use crate::handlers::auth_middleware::AuthUser;
 
@@ -265,7 +263,6 @@ pub async fn get_profile(
                 save_context: user_settings.save_context,
                 days_until_billing: days_until_billing,
                 digests_reserved: digests_reserved,
-                pairing_code: user_settings.server_instance_id,
                 server_ip: user_settings.server_ip,
                 twilio_sid: twilio_sid,
                 twilio_token: twilio_token,
@@ -276,7 +273,6 @@ pub async fn get_profile(
                 location: user_info.location,
                 nearby_places: user_info.nearby_places,
                 phone_number_country: phone_country,
-                server_key: user_settings.server_key,
             }))
         }
         None => Err((
@@ -399,11 +395,6 @@ pub async fn update_timezone(
         )),
     }
 }
-
-use reqwest::Client;
-use serde_json::Value;
-use std::env;
-
 
 pub async fn set_user_phone_country(state: &Arc<AppState>, user_id: i32, phone_number: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let ca_area_codes: Vec<String> = vec![

@@ -1,24 +1,17 @@
 use crate::AppState;
 use std::sync::Arc;
-use crate::handlers::auth_dtos::NewUser;
 use crate::handlers::auth_middleware::AuthUser;
 use axum::{
     Json,
-    extract::State,
-    response::Response,
+    extract::{State, Query},
+
     http::StatusCode,
 };
 
 use rand::Rng;
 use serde_json::json;
-use jsonwebtoken::{encode, Header, EncodingKey};
-use chrono::{Duration, Utc};
-use std::num::NonZeroU32;
-use governor::{Quota, RateLimiter};
-use rand::distributions::Alphanumeric;
 use std::env;
 use serde::{Deserialize, Serialize};
-use crate::handlers::auth_handlers::generate_tokens_and_response;
 
 #[derive(Deserialize)]
 pub struct SelfHostPingRequest {
@@ -200,7 +193,6 @@ pub async fn update_textbee_creds(
 
 use roxmltree::{Document, Node};
 use reqwest;
-use tracing;
 
 #[derive(serde::Deserialize)]
 pub struct SetupSubdomainRequest {
@@ -454,128 +446,131 @@ pub async fn setup_subdomain(
     }))
 }
 
-pub async fn self_hosted_status(
-    State(state): State<Arc<AppState>>,
-) -> Result<Json<SelfHostedStatusResponse>, (StatusCode, Json<serde_json::Value>)> {
-    // Check if environment is self-hosted
-    let env_type = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "normal".to_string());
-    
-    if env_type == "self_hosted" {
-        // Check if there are any users in the database
-        match state.user_core.get_all_users() {
-            Ok(users) => {
-                let status = if users.is_empty() {
-                    "self-hosted-signup"
-                } else {
-                    "self-hosted-login"
-                };
-                println!("status: {}", status);
-                Ok(Json(SelfHostedStatusResponse { status: status.to_string() }))
-            }
-            Err(e) => {
-                println!("Database error while checking users: {}", e);
-                Err((
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "Database error"}))
-                ))
-            }
-        }
-    } else {
-        println!("status: normal");
-        Ok(Json(SelfHostedStatusResponse {
-            status: "normal".to_string()
-        }))
-    }
+
+use axum::{response::Json as AxumJson};
+use tracing;
+
+#[derive(Deserialize)]
+pub struct TokenRequest {
+    pub token: String,
 }
 
-pub async fn check_pairing(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<PairingVerificationRequest>,
-) -> Result<Json<PairingVerificationResponse>, (StatusCode, Json<serde_json::Value>)> {
-    println!("Attempting to verify pairing code for server instance: {}", req.server_instance_id);
-
-    // Verify the pairing code and update server instance ID
-    match state.user_core.verify_pairing_code(&req.pairing_code, &req.server_instance_id) {
-        Ok((true, number)) => {
-            println!("Pairing code verified successfully for server instance: {}", req.server_instance_id);
-            Ok(Json(PairingVerificationResponse {
-                valid: true,
-                number: number.unwrap_or("".to_string()),
-                message: "Pairing code verified successfully".to_string(),
-            }))
-        },
-        Ok((false, number)) => {
-            println!("Invalid pairing code provided for server instance: {}", req.server_instance_id);
-            Ok(Json(PairingVerificationResponse {
-                valid: false,
-                number: number.unwrap_or("".to_string()),
-                message: "Invalid pairing code".to_string(),
-            }))
-        },
-        Err(e) => {
-            println!("Database error while verifying pairing code: {}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Failed to verify pairing code due to database error"}))
-            ))
-        }
-    }
+#[derive(Serialize)]
+pub struct VerifyTokenResponse {
+    pub user_id: String,
+    pub phone_number: String,
+    pub preferred_number: String,
+    pub phone_number_country: String,
+    pub messaging_service_sid: Option<String>, 
+    pub twilio_account_sid: Option<String>,
+    pub twilio_auth_token: Option<String>,
+    pub server_url: Option<String>,
 }
 
-// generates a new pairing code for the user. normally this is done on stripe subscription webhook.
-pub async fn generate_pairing_code(
-    State(state): State<Arc<AppState>>,
-    auth_user: AuthUser, 
-) -> Result<Json<GeneratePairingCodeResponse>, (StatusCode, Json<serde_json::Value>)> {
-    // Generate a random 6-character pairing code
-    let pairing_code: String = rand::thread_rng()
-        .sample_iter(&Alphanumeric)
-        .take(6)
-        .map(char::from)
-        .collect::<String>()
-        .to_uppercase();
+use crate::handlers::auth_middleware::Tier3SelfHostedUser;
 
-    // Save the new pairing code 
-    if let Err(e) = state.user_core.set_server_instance_id(auth_user.user_id, &pairing_code.as_str()) {
-        println!("Failed to save pairing code: {}", e);
-        return Err((
+pub async fn verify_token(
+    State(state): State<Arc<AppState>>,
+    tier3_user: Tier3SelfHostedUser,
+    Json(token_req): Json<TokenRequest>,
+) -> Result<AxumJson<VerifyTokenResponse>, (StatusCode, AxumJson<serde_json::Value>)> {
+    let user = state.user_core.find_by_id(tier3_user.user_id)
+        .map_err(|_| (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to generate pairing code"}))
+            AxumJson(serde_json::json!({"error": "Failed to fetch user"}))
+        ))?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            AxumJson(serde_json::json!({"error": "User not found"}))
+        ))?;
+
+    // Verify and invalidate token
+    let settings = match state.user_core.verify_and_invalidate_magic_login_token(tier3_user.user_id, &token_req.token) {
+        Ok(s) => s,
+        Err(_) => {
+            return Err((
+                StatusCode::UNAUTHORIZED,
+                AxumJson(serde_json::json!({"error": "Invalid or expired token"}))
+            ));
+        }
+    };
+
+    // TODO: Get decrypted Twilio creds
+
+    let response = VerifyTokenResponse {
+        user_id: tier3_user.user_id.to_string(),
+        phone_number: user.phone_number,
+        preferred_number: user.preferred_number.unwrap_or_default(),
+        phone_number_country: user.phone_number_country.unwrap_or_default(),
+        messaging_service_sid: None, // Or from settings if added
+        twilio_account_sid: None,
+        twilio_auth_token: None,
+        server_url: settings.server_url,
+    };
+
+    tracing::info!("Magic token verified and invalidated for user {}", tier3_user.user_id);
+    Ok(AxumJson(response))
+}
+
+
+// Query param for regenerate
+#[derive(Deserialize)]
+pub struct MagicLinkQuery {
+    regenerate: Option<bool>,
+}
+
+#[derive(Serialize)]
+pub struct MagicLinkResponse {
+    link: String,
+}
+
+pub async fn get_magic_link(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Query(query): Query<MagicLinkQuery>,
+) -> Result<AxumJson<MagicLinkResponse>, (StatusCode, AxumJson<serde_json::Value>)> {
+    let user = state.user_core
+        .find_by_id(auth_user.user_id)
+        .map_err(|_| (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            AxumJson(json!({"error": "Failed to fetch user"}))
+        ))?
+        .ok_or((
+            StatusCode::NOT_FOUND,
+            AxumJson(json!({"error": "User not found"}))
+        ))?;
+
+    if user.sub_tier.as_deref() != Some("tier 3") {
+        return Err((
+            StatusCode::FORBIDDEN,
+            AxumJson(json!({"error": "Magic link requires Tier 3 subscription"}))
         ));
     }
 
-    Ok(Json(GeneratePairingCodeResponse {
-        pairing_code
-    }))
-}
-
-pub async fn self_host_ping(
-    State(state): State<Arc<AppState>>,
-    Json(ping_req): Json<SelfHostPingRequest>,
-) -> Result<StatusCode, (StatusCode, Json<serde_json::Value>)> {
-    tracing::debug!("Received self-host ping from instance: {}", ping_req.instance_id);
-
-    // Find user with this instance ID
-    match state.user_core.find_user_by_pairing_code(&ping_req.instance_id) {
-        Ok(Some(user_id)) => {
-            tracing::debug!("Self-host ping successful for instance: {}", ping_req.instance_id);
-            Ok(StatusCode::OK)
-        },
-        Ok(None) => {
-            tracing::error!("Invalid instance ID received in ping: {}", ping_req.instance_id);
-            Err((
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "Invalid instance ID"}))
-            ))
-        },
-        Err(e) => {
-            tracing::error!("Database error while processing ping: {}", e);
-            Err((
+    // Get or generate token (forces regenerate if query.regenerate == Some(true))
+    let force_regenerate = query.regenerate.unwrap_or(false);
+    let token = if force_regenerate {
+        state.user_core.generate_magic_login_token(auth_user.user_id).map_err(|e| {
+            tracing::error!("Failed to generate magic token: {}", e);
+            (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"}))
-            ))
-        }
-    }
+                AxumJson(json!({"error": "Failed to generate magic link"}))
+            )
+        })?
+    } else {
+        state.user_core.get_or_generate_magic_login_token(auth_user.user_id).map_err(|e| {
+            tracing::error!("Failed to get/generate magic token: {}", e);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                AxumJson(json!({"error": "Failed to get magic link"}))
+            )
+        })?
+    };
+
+    let link = format!("https://{}.lightfriend.ai/login?token={}", user.id, token);
+
+    tracing::info!("Magic link fetched/generated for user {}: {}", auth_user.user_id, link);
+    Ok(AxumJson(MagicLinkResponse { link }))
 }
 
 pub async fn update_server_ip(
@@ -634,237 +629,7 @@ struct CheckCredsResponse {
     user_id: String,
     phone_number: String,
 }
-
 use axum::response::IntoResponse;
-pub async fn self_hosted_login(
-    State(state): State<Arc<AppState>>,
-    Json(login_req): Json<LoginRequest>,
-) -> Result<Response, (axum::http::StatusCode, Json<serde_json::Value>)> {
-    println!("Self-hosted login attempt for email: {}", login_req.email); // Debug log
-    // Define rate limit: 5 attempts per minute
-    let quota = Quota::per_minute(NonZeroU32::new(5).unwrap());
-    let limiter_key = login_req.email.clone(); // Use email as the key
-    // Get or create a keyed rate limiter for this email
-    let entry = state.login_limiter
-        .entry(limiter_key.clone())
-        .or_insert_with(|| RateLimiter::keyed(quota)); // Bind the Entry here
-    let limiter = entry.value(); // Now borrow from the bound value
-    // Check if rate limit is exceeded
-    if limiter.check_key(&limiter_key).is_err() {
-        println!("Rate limit exceeded for email: [redacted]");
-        return Err((
-            axum::http::StatusCode::TOO_MANY_REQUESTS,
-            Json(json!({"error": "Too many login attempts, try again later"})),
-        ));
-    }
-    // Verify credentials against main server
-    let client = Client::new();
-    let check_resp = client
-        .post("https://lightfriend.ai/api/profile/check-creds")
-        .json(&login_req)
-        .send()
-        .await
-        .map_err(|_| (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Verification service unavailable"}))
-        ))?;
-    if !check_resp.status().is_success() {
-        println!("Credential check failed for email: [redacted]");
-        return Err((
-            axum::http::StatusCode::UNAUTHORIZED,
-            Json(json!({"error": "Invalid credentials"}))
-        ));
-    }
-    let check_data: CheckCredsResponse = check_resp
-        .json()
-        .await
-        .map_err(|_| (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to process verification response"}))
-        ))?;
-    let main_phone_number = check_data.phone_number;
-    println!("Credentials verified successfully for main user_id: {}", check_data.user_id);
-    // Check if local user with id == 1 exists
-    let user = match state.user_core.find_by_id(1) {
-        Ok(Some(mut u)) => {
-            // User exists, check if the email matches the stored email
-            if u.email != login_req.email {
-                println!("Email mismatch for existing self-hosted user");
-                return Err((
-                    axum::http::StatusCode::UNAUTHORIZED,
-                    Json(json!({"error": "Invalid credentials for this instance"}))
-                ));
-            }
-            u
-        }
-        Ok(None) => {
-            // No user exists, create a new user with provided email, random password, and phone from main
-            // Generate random password
-            let random_password: String = rand::thread_rng()
-                .sample_iter(&Alphanumeric)
-                .take(32)
-                .map(char::from)
-                .collect();
-            let password_hash = bcrypt::hash(&random_password, bcrypt::DEFAULT_COST)
-                .map_err(|e| {
-                    println!("Password hashing failed: {}", e);
-                    (
-                        axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({"error": "Password hashing failed"}))
-                    )
-                })?;
-            // Calculate time_to_live
-            let five_minutes_from_now = Utc::now()
-                .checked_add_signed(Duration::minutes(5))
-                .expect("Failed to calculate timestamp")
-                .timestamp() as i32;
-            // Create new user
-            let new_user = NewUser {
-                email: login_req.email.clone(),
-                password_hash,
-                phone_number: main_phone_number.clone(),
-                time_to_live: five_minutes_from_now,
-                verified: false,
-                credits: 0.00,
-                credits_left: 0.00,
-                charge_when_under: false,
-                waiting_checks_count: 0,
-                discount: false,
-                sub_tier: None,
-            };
-            state.user_core.create_user(new_user).map_err(|e| {
-                println!("User creation failed: {}", e);
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "User creation failed"})),
-                )
-            })?;
-            println!("New self-hosted user created successfully");
-            // Get the newly created user
-            state.user_core.find_by_email(&login_req.email)
-                .map_err(|e| (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": format!("Failed to retrieve user: {}", e)}))
-                ))?
-                .ok_or_else(|| (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(json!({"error": "User not found after creation"}))
-                ))?
-        }
-        Err(e) => {
-            println!("Database error while checking for user id 1: {}", e);
-            return Err((
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Database error"}))
-            ));
-        }
-    };
-
-    // Set phone country
-    if let Err(e) = crate::handlers::profile_handlers::set_user_phone_country(&state, user.id, &user.phone_number).await {
-        tracing::error!("Failed to set phone country during self-hosted login: {}", e);
-        // Proceed anyway
-    }
-    // Set preferred number if US
-    if user.phone_number.starts_with("+1") {
-        if let Err(e) = state.user_core.set_preferred_number_to_us_default(user.id) {
-            tracing::error!("Failed to set preferred number during self-hosted login: {}", e);
-            // Proceed anyway
-        }
-    }
-
-    // Generate and update server_key on self-hosted
-    let server_key = generate_api_key(32);
-    state.user_core.update_server_key(user.id, &server_key).map_err(|e| {
-        println!("Failed to update server key on self-hosted: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to update server key"})),
-        )
-    })?;
-
-    // Update server_key on main server
-    let update_req = json!({
-        "email": login_req.email,
-        "password": login_req.password,
-        "server_key": server_key
-    });
-    let update_resp = client
-        .post("https://lightfriend.ai/api/profile/update-server-key")
-        .json(&update_req)
-        .send()
-        .await
-        .map_err(|_| (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to update main server"}))
-        ))?;
-    if !update_resp.status().is_success() {
-        println!("Failed to update server key on main server");
-        return Err((
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to update main server"}))
-        ));
-    }
-
-    generate_tokens_and_response(user.id)
-}
-
-#[derive(Deserialize)]
-pub struct UpdateServerKeyRequest {
-    email: String,
-    password: String,
-    server_key: String,
-}
-
-pub async fn update_server_key_main(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<UpdateServerKeyRequest>,
-) -> impl axum::response::IntoResponse {
-    println!("Update server key attempt for email: {}", req.email);
-    // Define rate limit: 5 attempts per minute
-    let quota = Quota::per_minute(NonZeroU32::new(5).unwrap());
-    let limiter_key = req.email.clone();
-    // Get or create a keyed rate limiter for this email
-    let entry = state.login_limiter
-        .entry(limiter_key.clone())
-        .or_insert_with(|| RateLimiter::keyed(quota));
-    let limiter = entry.value();
-    // Check if rate limit is exceeded
-    if limiter.check_key(&limiter_key).is_err() {
-        println!("Rate limit exceeded for email: [redacted]");
-        return (axum::http::StatusCode::TOO_MANY_REQUESTS, Json(json!({"error": "Too many attempts, try again later"}))).into_response();
-    }
-    let user = match state.user_core.find_by_email(&req.email) {
-        Ok(Some(user)) => user,
-        Ok(None) => {
-            println!("User not found for email: [redacted]");
-            return (axum::http::StatusCode::UNAUTHORIZED, Json(json!({"error": "Invalid credentials"}))).into_response();
-        }
-        Err(_) => {
-            println!("Database error during update server key");
-            return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"}))).into_response();
-        }
-    };
-    match bcrypt::verify(&req.password, &user.password_hash) {
-        Ok(valid) => {
-            if valid {
-                println!("Credentials verified for update server key, user_id: {}", user.id);
-                if let Err(e) = state.user_core.update_server_key(user.id, &req.server_key) {
-                    println!("Failed to update server key: {}", e);
-                    return (axum::http::StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Failed to update server key"}))).into_response();
-                }
-                (axum::http::StatusCode::OK, Json(json!({"message": "Server key updated"}))).into_response()
-            } else {
-                println!("Password verification failed for email: [redacted]");
-                (axum::http::StatusCode::UNAUTHORIZED, Json(json!({"error": "Invalid credentials"}))).into_response()
-            }
-        }
-        Err(err) => {
-            println!("Password verification error: {:?}", err);
-            (axum::http::StatusCode::UNAUTHORIZED, Json(json!({"error": "Invalid credentials"}))).into_response()
-        }
-    }
-}
 
 fn generate_api_key(length: usize) -> String {
     rand::thread_rng()

@@ -9,7 +9,7 @@ use serde_json::json;
 use serde::{Deserialize, Serialize};
 use oauth2::TokenResponse;
 use reqwest::header::{AUTHORIZATION, ACCEPT, CONTENT_TYPE};
-use chrono::{DateTime, Utc, Duration, TimeZone};
+use chrono::{DateTime, Utc, Duration};
 use chrono_tz::Tz;
 
 use crate::AppState;

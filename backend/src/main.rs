@@ -298,11 +298,6 @@ async fn main() {
         .route("/api/password-reset/verify", post(auth_handlers::verify_password_reset))
         .route("/api/phone-verify/request", post(auth_handlers::request_phone_verify))
         .route("/api/phone-verify/verify", post(auth_handlers::verify_phone_verify))
-        .route("/api/self-hosted/login", post(self_host_handlers::self_hosted_login))
-        .route("/api/check-creds", post(self_host_handlers::update_server_key_main))
-        .route("/api/self-hosting-status", get(self_host_handlers::self_hosted_status))
-        .route("/api/check-pairing", post(self_host_handlers::check_pairing))
-        .route("/api/self-host-ping", post(self_host_handlers::self_host_ping))
         .route("/api/country-info", post(twilio_handlers::get_country_info));
     // Admin routes that need admin authentication
     let admin_routes = Router::new()
@@ -324,8 +319,8 @@ async fn main() {
     let protected_routes = Router::new()
         .route("/api/profile/delete/{user_id}", delete(profile_handlers::delete_user))
         .route("/api/profile/update", post(profile_handlers::update_profile))
-        .route("/api/profile/generate-pairing-code", post(self_host_handlers::generate_pairing_code))
         .route("/api/profile/server-ip", post(self_host_handlers::update_server_ip))
+        .route("/api/profile/magic-link", get(self_host_handlers::get_magic_link))
         .route("/api/profile/twilio-phone", post(self_host_handlers::update_twilio_phone))
         .route("/api/profile/twilio-creds", post(self_host_handlers::update_twilio_creds))
         .route("/api/profile/textbee-creds", post(self_host_handlers::update_textbee_creds))
@@ -426,6 +421,9 @@ async fn main() {
         // Generic filter toggle routes
         .route("/api/profile/email-judgments", get(profile_handlers::get_email_judgments))
         .route_layer(middleware::from_fn(handlers::auth_middleware::require_auth));
+    let self_hosted_public_router = Router::new()
+        .route("/verify-token", post(self_host_handlers::verify_token))
+        .layer(middleware::from_fn_with_state(state.clone(), handlers::auth_middleware::validate_tier3_self_hosted));
     let app = Router::new()
         .merge(public_routes)
         .merge(admin_routes)
@@ -441,6 +439,7 @@ async fn main() {
         .merge(elevenlabs_free_routes)
         .merge(elevenlabs_webhook_routes)
         .nest_service("/uploads", ServeDir::new("uploads"))
+        .nest("/api/self-hosted", self_hosted_public_router)
         // Serve static files (robots.txt, sitemap.xml) at the root
         .layer(session_layer)
         .layer(

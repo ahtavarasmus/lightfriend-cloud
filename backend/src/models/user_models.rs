@@ -482,8 +482,6 @@ pub struct UserSettings {
     pub server_url: Option<String>, // for self hosted instance
     pub encrypted_geoapify_key: Option<String>, // for self hosted instance
     pub encrypted_pirate_weather_key: Option<String>, // for self hosted instance
-    pub server_instance_id: Option<String>, // for self hosted instance (field for pairing code and instance id)
-    pub server_instance_last_ping_timestamp: Option<i32>, // for self hosted instance (used to allow only a single instance ping per day)
     pub server_ip: Option<String>, // for self hosted instance
     pub encrypted_textbee_device_id: Option<String>,
     pub encrypted_textbee_api_key: Option<String>,
@@ -491,7 +489,8 @@ pub struct UserSettings {
     pub proactive_agent_on: bool, // whether the user wants to receive any kinds of notifications
     pub notify_about_calls: bool, // if call comes in to any chat networks should we notify the user about it?
     pub action_on_critical_message: Option<String>, // "ask_sender", "ask_sender_exclude_family", "notify_family", or None and "notify_all" are the same
-    pub server_key: Option<String>, // for self hosted instance to make calls to main lightfriend server. is generated when user logs in to their instance
+    pub magic_login_token: Option<String>, // self hosted instance magic link token
+    pub magic_login_token_expiration_timestamp: Option<i32>, // self hosted instance magic token expiration timestamp
 }
 
 #[derive(Insertable)]
