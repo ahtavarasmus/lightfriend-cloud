@@ -45,7 +45,6 @@ pub struct UserProfile {
     pub save_context: Option<i32>,
     pub days_until_billing: Option<i32>,
     pub digests_reserved: i32,
-    pub server_ip: Option<String>,
     pub twilio_sid: Option<String>,
     pub twilio_token: Option<String>,
     pub openrouter_api_key: Option<String>,
@@ -55,6 +54,7 @@ pub struct UserProfile {
     pub location: Option<String>,
     pub nearby_places: Option<String>,
     pub phone_number_country: Option<String>,
+    pub server_ip: Option<String>,
 }
 
 #[derive(Deserialize, Clone, PartialEq)]

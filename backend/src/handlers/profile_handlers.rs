@@ -78,7 +78,6 @@ pub struct ProfileResponse {
     save_context: Option<i32>,
     days_until_billing: Option<i32>,
     digests_reserved: i32,
-    server_ip: Option<String>,
     twilio_sid: Option<String>,
     twilio_token: Option<String>,
     openrouter_api_key: Option<String>,
@@ -88,6 +87,7 @@ pub struct ProfileResponse {
     location: Option<String>,
     nearby_places: Option<String>,
     phone_number_country: Option<String>,
+    server_ip: Option<String>,
 }
 use crate::handlers::auth_middleware::AuthUser;
 
@@ -263,7 +263,6 @@ pub async fn get_profile(
                 save_context: user_settings.save_context,
                 days_until_billing: days_until_billing,
                 digests_reserved: digests_reserved,
-                server_ip: user_settings.server_ip,
                 twilio_sid: twilio_sid,
                 twilio_token: twilio_token,
                 openrouter_api_key: openrouter_api_key,
@@ -273,6 +272,7 @@ pub async fn get_profile(
                 location: user_info.location,
                 nearby_places: user_info.nearby_places,
                 phone_number_country: phone_country,
+                server_ip: user_settings.server_ip,
             }))
         }
         None => Err((

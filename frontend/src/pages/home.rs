@@ -11,6 +11,8 @@ use wasm_bindgen_futures::spawn_local;
 use crate::pages::landing::Landing;
 use crate::profile::settings::SettingsPage;
 use crate::profile::billing_models::UserProfile;
+use crate::pages::server_self_host_instructions::ServerSelfHostInstructions;
+
 fn render_notification_settings(profile: Option<&UserProfile>) -> Html {
     html! {
         <div style="margin-top: 2rem; padding: 1.5rem; background: rgba(30, 30, 30, 0.7); border: 1px solid rgba(30, 144, 255, 0.1); border-radius: 12px; margin-bottom: 2rem;">
@@ -29,7 +31,7 @@ fn render_notification_settings(profile: Option<&UserProfile>) -> Html {
                                                 Callback::from(move |e: Event| {
                                                     let input: HtmlInputElement = e.target_unchecked_into();
                                                     let notify = input.checked();
-                                              
+                                           
                                                     if let Some(token) = window()
                                                         .and_then(|w| w.local_storage().ok())
                                                         .flatten()
@@ -64,11 +66,13 @@ fn render_notification_settings(profile: Option<&UserProfile>) -> Html {
         </div>
     }
 }
+
 #[derive(Clone, PartialEq)]
 enum DashboardTab {
     Connections,
     Personal,
 }
+
 pub fn is_logged_in() -> bool {
     if let Some(window) = window() {
         if let Ok(Some(storage)) = window.local_storage() {
@@ -79,18 +83,20 @@ pub fn is_logged_in() -> bool {
     }
     false
 }
+
 #[derive(Properties, PartialEq, Clone)]
 pub struct MagicLinkProps {
     pub link: Option<String>,
     pub error: Option<String>,
     pub on_regenerate: Callback<()>,
 }
+
 #[function_component]
 fn MagicLinkSection(props: &MagicLinkProps) -> Html {
     let link = &props.link;
     let on_regenerate = props.on_regenerate.clone();
     html! {
-        <div class="magic-link-item" style="position: relative;">
+        <div class="magic-link-item" style="position: relative; width: 100%;">
             <span class="credit-label">{"Self-Hosted Login Link"}</span>
             if let Some(l) = link.as_ref() {
                 <>
@@ -114,8 +120,14 @@ fn MagicLinkSection(props: &MagicLinkProps) -> Html {
         </div>
     }
 }
+
+#[derive(Properties, PartialEq)]
+struct MonthlyCreditsProps {
+    pub profile: UserProfile,
+}
+
 #[function_component]
-pub fn MonthlyCredits(props: &Props) -> Html {
+fn MonthlyCredits(props: &MonthlyCreditsProps) -> Html {
     let profile = &props.profile;
     html! {
         <div class="credit-item" tabindex="0">
@@ -155,10 +167,7 @@ pub fn MonthlyCredits(props: &Props) -> Html {
         </div>
     }
 }
-#[derive(Properties, PartialEq)]
-pub struct Props {
-    pub profile: UserProfile,
-}
+
 #[function_component]
 pub fn Home() -> Html {
     let logged_in = is_logged_in();
@@ -170,57 +179,53 @@ pub fn Home() -> Html {
     let navigator = use_navigator().unwrap();
     let magic_link = use_state(|| None::<String>);
     let magic_error = use_state(|| None::<String>);
-    // Single profile fetch effect
-    {
+    let refetch_profile = {
         let profile_data = profile_data.clone();
         let user_verified = user_verified.clone();
         let error = error.clone();
         let magic_link = magic_link.clone();
         let magic_error = magic_error.clone();
-  
-        use_effect_with_deps(move |_| {
+        Callback::from(move |_| {
             let profile_data = profile_data.clone();
             let user_verified = user_verified.clone();
             let error = error.clone();
             let magic_link = magic_link.clone();
             let magic_error = magic_error.clone();
-            wasm_bindgen_futures::spawn_local(async move {
+            spawn_local(async move {
                 if let Some(token) = window()
                     .and_then(|w| w.local_storage().ok())
                     .flatten()
                     .and_then(|storage| storage.get_item("token").ok())
                     .flatten()
                 {
-                    match Request::get(&format!("{}/api/profile", config::get_backend_url()))
+                    let result = Request::get(&format!("{}/api/profile", config::get_backend_url()))
                         .header("Authorization", &format!("Bearer {}", token))
                         .send()
-                        .await
-                    {
+                        .await;
+                    match result {
                         Ok(response) => {
                             if response.status() == 401 {
                                 if let Some(window) = window() {
                                     if let Ok(Some(storage)) = window.local_storage() {
                                         let _ = storage.remove_item("token");
-                                        let _ = window.location().set_href("/");
                                     }
+                                    let _ = window.location().set_href("/");
                                 }
                                 return;
                             }
-                      
                             match response.json::<UserProfile>().await {
                                 Ok(profile) => {
                                     user_verified.set(profile.verified);
                                     profile_data.set(Some(profile.clone()));
                                     error.set(None);
-                                    // Fetch magic link if tier 3
                                     if profile.sub_tier.as_deref() == Some("tier 3") {
                                         let token = token.clone();
                                         spawn_local(async move {
-                                            match Request::get(&format!("{}/api/profile/magic-link", config::get_backend_url()))
+                                            let result = Request::get(&format!("{}/api/profile/magic-link", config::get_backend_url()))
                                                 .header("Authorization", &format!("Bearer {}", token))
                                                 .send()
-                                                .await
-                                            {
+                                                .await;
+                                            match result {
                                                 Ok(resp) => {
                                                     if resp.ok() {
                                                         match resp.json::<Value>().await {
@@ -255,7 +260,93 @@ pub fn Home() -> Html {
                     }
                 }
             });
-      
+        })
+    };
+    // Single profile fetch effect
+    {
+        let profile_data = profile_data.clone();
+        let user_verified = user_verified.clone();
+        let error = error.clone();
+        let magic_link = magic_link.clone();
+        let magic_error = magic_error.clone();
+        use_effect_with_deps(move |_| {
+            let profile_data = profile_data.clone();
+            let user_verified = user_verified.clone();
+            let error = error.clone();
+            let magic_link = magic_link.clone();
+            let magic_error = magic_error.clone();
+            spawn_local(async move {
+                if let Some(token) = window()
+                    .and_then(|w| w.local_storage().ok())
+                    .flatten()
+                    .and_then(|storage| storage.get_item("token").ok())
+                    .flatten()
+                {
+                    let result = Request::get(&format!("{}/api/profile", config::get_backend_url()))
+                        .header("Authorization", &format!("Bearer {}", token))
+                        .send()
+                        .await;
+                    match result {
+                        Ok(response) => {
+                            if response.status() == 401 {
+                                if let Some(window) = window() {
+                                    if let Ok(Some(storage)) = window.local_storage() {
+                                        let _ = storage.remove_item("token");
+                                    }
+                                    let _ = window.location().set_href("/");
+                                }
+                                return;
+                            }
+                   
+                            match response.json::<UserProfile>().await {
+                                Ok(profile) => {
+                                    user_verified.set(profile.verified);
+                                    profile_data.set(Some(profile.clone()));
+                                    error.set(None);
+                                    // Fetch magic link if tier 3
+                                    if profile.sub_tier.as_deref() == Some("tier 3") {
+                                        let token = token.clone();
+                                        spawn_local(async move {
+                                            let result = Request::get(&format!("{}/api/profile/magic-link", config::get_backend_url()))
+                                                .header("Authorization", &format!("Bearer {}", token))
+                                                .send()
+                                                .await;
+                                            match result {
+                                                Ok(resp) => {
+                                                    if resp.ok() {
+                                                        match resp.json::<Value>().await {
+                                                            Ok(data) => {
+                                                                if let Some(l) = data["link"].as_str() {
+                                                                    magic_link.set(Some(l.to_string()));
+                                                                }
+                                                            }
+                                                            Err(_) => {
+                                                                magic_error.set(Some("Failed to parse link".to_string()));
+                                                            }
+                                                        }
+                                                    } else {
+                                                        magic_error.set(Some("Failed to fetch link".to_string()));
+                                                    }
+                                                }
+                                                Err(_) => {
+                                                    magic_error.set(Some("Network error".to_string()));
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+                                Err(_) => {
+                                    error.set(Some("Failed to parse profile data".to_string()));
+                                }
+                            }
+                        }
+                        Err(_) => {
+                            error.set(Some("Failed to fetch profile".to_string()));
+                        }
+                    }
+                }
+            });
+   
             || ()
         }, ());
     }
@@ -272,320 +363,88 @@ pub fn Home() -> Html {
                 <div class="dashboard-container">
                     <h1 class="panel-title">{"Dashboard"}</h1>
                     <div class="status-section">
-                        <div class="credits-info">
                         {
                             if let Some(profile) = (*profile_data).as_ref() {
-                                let phone_prefix = if profile.phone_number_country == Some("US".to_string()) {
-                                    Some(("+1", "+18153684737"))
-                                } else if profile.phone_number_country == Some("CA".to_string()) {
-                                    Some(("+1", "+12892066453"))
-                                } else if profile.phone_number_country == Some("FI".to_string()) {
-                                    Some(("+358", "+358454901522"))
-                                } else if profile.phone_number_country == Some("NL".to_string()) {
-                                    Some(("+31", "+3197010207742"))
-                                } else if profile.phone_number_country == Some("UK".to_string()) {
-                                    Some(("+44", "+447383240344"))
-                                } else if profile.phone_number_country == Some("AU".to_string()) {
-                                    Some(("+61", "+61489260976"))
-                                } else {
-                                    None
-                                };
-                                html! {
-                                    <div class="credits-grid">
-                                        {
-                                            if let Some(ref tier) = profile.sub_tier {
-                                                match tier.as_str() {
-                                                    "tier 3" => html! {
-                                                        <>
-                                                            {
-                                                                if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
-                                                                    html! { <MonthlyCredits profile={profile.clone()} /> }
-                                                                } else {
-                                                                    html! {}
-                                                                }
-                                                            }
-                                                            {
-                                                                if profile.credits > 0.00 {
-                                                                    html! {
-                                                                        <div class="credit-item" tabindex="0">
-                                                                            <span class="credit-label">{"Message Credits"}</span>
-                                                                            <span class="credit-value">{format!("{:.2}€", profile.credits)}</span>
-                                                                            <div class="credit-tooltip">
-                                                                                {"Your message credits. Checkout how they are used in the pricing page under 'Message Costs (Credits)'."}
-                                                                            </div>
-                                                                        </div>
-                                                                    }
-                                                                } else {
-                                                                    html! {}
-                                                                }
-                                                            }
-                                                            <MagicLinkSection
-                                                                link={(*magic_link).clone()}
-                                                                error={(*magic_error).clone()}
-                                                                on_regenerate={{
-                                                                    let magic_link = magic_link.clone();
-                                                                    let magic_error = magic_error.clone();
-                                                                    let token = window().and_then(|w| w.local_storage().ok()).flatten().and_then(|s| s.get_item("token").ok()).flatten().unwrap_or_default();
-                                                                    Callback::from(move |_| {
-                                                                        let magic_link = magic_link.clone();
-                                                                        let magic_error = magic_error.clone();
-                                                                        let token = token.clone();
-                                                                        spawn_local(async move {
-                                                                            match Request::get(&format!("{}/api/profile/magic-link?regenerate=true", config::get_backend_url()))
-                                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                                .send()
-                                                                                .await
-                                                                            {
-                                                                                Ok(resp) => {
-                                                                                    if resp.ok() {
-                                                                                        match resp.json::<Value>().await {
-                                                                                            Ok(data) => {
-                                                                                                if let Some(new_link) = data["link"].as_str() {
-                                                                                                    magic_link.set(Some(new_link.to_string()));
-                                                                                                    magic_error.set(None);
-                                                                                                }
-                                                                                            }
-                                                                                            Err(_) => {
-                                                                                                magic_error.set(Some("Failed to regenerate".to_string()));
-                                                                                            }
-                                                                                        }
-                                                                                    } else {
-                                                                                        magic_error.set(Some("Failed to regenerate".to_string()));
-                                                                                    }
-                                                                                }
-                                                                                Err(_) => {
-                                                                                    magic_error.set(Some("Network error".to_string()));
-                                                                                }
-                                                                            }
-                                                                        });
-                                                                    })
-                                                                }}
-                                                            />
-                                                        </>
-                                                    },
-                                                    _ => {
+                                if profile.sub_tier.as_deref() != Some("tier 3") {
+                                    html! {
+                                        <div class="credits-info">
+                                            <div class="credits-grid">
+                                                {
+                                                    if let Some(ref _tier) = profile.sub_tier {
                                                         html! {
                                                             <>
                                                                 {
-                                                                    if let Some((prefix, _)) = phone_prefix {
-                                                                        if prefix == "+1" {
+                                                                    if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
+                                                                        html! { <MonthlyCredits profile={profile.clone()} /> }
+                                                                    } else {
+                                                                        html! {}
+                                                                    }
+                                                                }
+                                                                {
+                                                                    if profile.credits > 0.00 {
+                                                                        html! {
+                                                                            <div class="credit-item" tabindex="0">
+                                                                                <span class="credit-label">{"Overage Credits"}</span>
+                                                                                <span class="credit-value">{format!("{:.2}€", profile.credits)}</span>
+                                                                                <div class="credit-tooltip">
+                                                                                    {"Your overage credits. Check how they are used in the pricing page under 'Message Costs (Credits)'."}
+                                                                                </div>
+                                                                            </div>
+                                                                        }
+                                                                    } else {
+                                                                        html! {}
+                                                                    }
+                                                                }
+                                                                <div class="credit-item" tabindex="0">
+                                                                    <span class="credit-label">{"Lightfriend's Number"}</span>
+                                                                    {
+                                                                        if let Some(num) = &profile.preferred_number {
                                                                             html! {
-                                                                                <>
-                                                                                    {
-                                                                                        if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
-                                                                                            html! { <MonthlyCredits profile={profile.clone()} /> }
-                                                                                        } else {
-                                                                                            html! {}
-                                                                                        }
-                                                                                    }
-                                                                                    {
-                                                                                        if profile.credits > 0.00 {
-                                                                                            html! {
-                                                                                                <div class="credit-item" tabindex="0">
-                                                                                                    <span class="credit-label">{"Message Credits"}</span>
-                                                                                                    <span class="credit-value">{format!("{:.2}€", profile.credits)}</span>
-                                                                                                    <div class="credit-tooltip">
-                                                                                                        {"Your message credits. Checkout how they are used in the pricing page under 'Message Costs (Credits)'."}
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                            }
-                                                                                        } else {
-                                                                                            html! {}
-                                                                                        }
-                                                                                    }
-                                                                                </>
+                                                                                <span class="credit-value" style="color: #7EB2FF;">{num}</span>
                                                                             }
                                                                         } else {
                                                                             html! {
-                                                                                <>
-                                                                                    {
-                                                                                        if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
-                                                                                            html! { <MonthlyCredits profile={profile.clone()} /> }
-                                                                                        } else {
-                                                                                            html! {}
-                                                                                        }
-                                                                                    }
-                                                                                    {
-                                                                                        if profile.credits > 0.00 {
-                                                                                            html! {
-                                                                                                <div class="credit-item" tabindex="0">
-                                                                                                    <span class="credit-label">{"Message Credits"}</span>
-                                                                                                    <span class="credit-value">{format!("{:.2}€", profile.credits)}</span>
-                                                                                                    <div class="credit-tooltip">
-                                                                                                        {"Your message credits. Checkout how they are used in the pricing page under 'Message Costs (Credits)'."}
-                                                                                                    </div>
-                                                                                                </div>
-                                                                                            }
-                                                                                        } else {
-                                                                                            html! {}
-                                                                                        }
-                                                                                    }
-                                                                                </>
+                                                                                <span class="credit-value" style="color: #ff4444;">{"No number configured"}</span>
                                                                             }
                                                                         }
-                                                                    } else {
-                                                                        let twilio_setup_complete = profile.twilio_sid.is_some() && profile.twilio_token.is_some();
-                                                                        html! {
-                                                                            <>
-                                                                                {
-                                                                                    if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
-                                                                                        html! { <MonthlyCredits profile={profile.clone()} /> }
-                                                                                    } else {
-                                                                                        html! {}
-                                                                                    }
-                                                                                }
-                                                                                {
-                                                                                    if profile.credits > 0.00 {
-                                                                                        html! {
-                                                                                            <div class="credit-item" tabindex="0">
-                                                                                                <span class="credit-label">{"Message Credits"}</span>
-                                                                                                <span class="credit-value">{format!("{:.2}€", profile.credits)}</span>
-                                                                                                <div class="credit-tooltip">
-                                                                                                    {"Your message credits. Checkout how they are used in the pricing page under 'Message Costs (Credits)'."}
-                                                                                                </div>
-                                                                                            </div>
-                                                                                        }
-                                                                                    } else {
-                                                                                        html! {}
-                                                                                    }
-                                                                                }
-                                                                                <div class="credit-item" tabindex="0">
-                                                                                    <span class="credit-label">{"Twilio Setup"}</span>
-                                                                                    {
-                                                                                        if twilio_setup_complete {
-                                                                                            html! {
-                                                                                                <>
-                                                                                                    <span class="credit-value">{"Ready"}</span>
-                                                                                                    <div class="small-button-container">
-                                                                                                        <Link<Route> to={Route::TwilioHostedInstructions} classes="small-promo-link">
-                                                                                                            {"Change Twilio Settings"}
-                                                                                                        </Link<Route>>
-                                                                                                    </div>
-                                                                                                </>
-                                                                                            }
-                                                                                        } else {
-                                                                                            html! {
-                                                                                                <div class="subscription-promo">
-                                                                                                    <Link<Route> to={Route::TwilioHostedInstructions} classes="promo-link">
-                                                                                                        {"Bring Your Own Number →"}
-                                                                                                    </Link<Route>>
-                                                                                                </div>
-                                                                                            }
-                                                                                        }
-                                                                                    }
-                                                                                </div>
-                                                                            </>
-                                                                        }
                                                                     }
-                                                                }
+                                                                    <div class="credit-tooltip">
+                                                                        {"Your lightfriend's phone number for receiving messages."}
+                                                                    </div>
+                                                                </div>
                                                             </>
                                                         }
-                                                    }
-                                                }
-                                            } else {
-                                                html! {
-                                                    <>
-                                                        {
-                                                            if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
-                                                                html! { <MonthlyCredits profile={profile.clone()} /> }
-                                                            } else {
-                                                                html! {}
-                                                            }
-                                                        }
-                                                        {
-                                                            if profile.credits > 0.00 {
-                                                                html! {
-                                                                    <div class="credit-item" tabindex="0">
-                                                                        <span class="credit-label">{"Message Credits"}</span>
-                                                                        <span class="credit-value">{format!("{:.2}€", profile.credits)}</span>
-                                                                        <div class="credit-tooltip">
-                                                                            {"Your message credits. Checkout how they are used in the pricing page under 'Message Costs (Credits)'."}
-                                                                        </div>
-                                                                    </div>
-                                                                }
-                                                            } else {
-                                                                html! {}
-                                                            }
-                                                        }
-                                                        <div class="subscription-promo">
-                                                            <Link<Route> to={Route::Pricing} classes="promo-link">
-                                                                {"Subscribe to start →"}
-                                                            </Link<Route>>
-                                                        </div>
-                                                    </>
-                                                }
-                                            }
-                                        }
-                                    </div>
-                                }
-                            } else {
-                                html! {}
-                            }
-                        }
-                        </div>
-                    </div>
-                    {
-                        if let Some(profile) = (*profile_data).as_ref() {
-                            if let Some(ref tier) = profile.sub_tier {
-                                if tier.as_str() != "tier 3" {
-                                    let phone_prefix = if profile.phone_number_country == Some("US".to_string()) {
-                                        Some(("+1", "+18153684737"))
-                                    } else if profile.phone_number_country == Some("CA".to_string()) {
-                                        Some(("+1", "+12892066453"))
-                                    } else if profile.phone_number_country == Some("FI".to_string()) {
-                                        Some(("+358", "+358454901522"))
-                                    } else if profile.phone_number_country == Some("NL".to_string()) {
-                                        Some(("+31", "+3197010207742"))
-                                    } else if profile.phone_number_country == Some("UK".to_string()) {
-                                        Some(("+44", "+447383240344"))
-                                    } else if profile.phone_number_country == Some("AU".to_string()) {
-                                        Some(("+61", "+61489260976"))
-                                    } else {
-                                        None
-                                    };
-                                    let twilio_setup_complete = profile.twilio_sid.is_some() && profile.twilio_token.is_some();
-                                    html! {
-                                        <div class="phone-selector">
-                                            <div class="preferred-number-display">
-                                                {
-                                                    if let Some((_, hardcoded_number)) = phone_prefix {
-                                                        if profile.id == 1 {
-                                                            html! {
-                                                                <>
-                                                                <span class="preferred-number-label configured">
-                                                                    {format!("Your lightfriend's Number: {}", hardcoded_number)}
-                                                                </span>
-                                                                <a href="/admin">{"admin page"}</a>
-                                                                </>
-                                                            }
-                                                         } else {
-                                                            html! {
-                                                                <span class="preferred-number-label configured">
-                                                                    {format!("Your lightfriend's Number: {}", hardcoded_number)}
-                                                                </span>
-                                                            }
-                                                         }
                                                     } else {
-                                                        if twilio_setup_complete {
-                                                            if let Some(twilio_number) = &profile.preferred_number {
-                                                                html! {
-                                                                    <span class="preferred-number-label configured">
-                                                                        {format!("Your Twilio Number: {}", twilio_number)}
-                                                                    </span>
+                                                        html! {
+                                                            <>
+                                                                {
+                                                                    if profile.days_until_billing.is_some() || profile.credits_left > 0.0 {
+                                                                        html! { <MonthlyCredits profile={profile.clone()} /> }
+                                                                    } else {
+                                                                        html! {}
+                                                                    }
                                                                 }
-                                                            } else {
-                                                                html! {
-                                                                    <span class="preferred-number-label not-configured">
-                                                                        {"No Twilio Number configured"}
-                                                                    </span>
+                                                                {
+                                                                    if profile.credits > 0.00 {
+                                                                        html! {
+                                                                            <div class="credit-item" tabindex="0">
+                                                                                <span class="credit-label">{"Overage Credits"}</span>
+                                                                                <span class="credit-value">{format!("{:.2}€", profile.credits)}</span>
+                                                                                <div class="credit-tooltip">
+                                                                                    {"Your overage credits. Check how they are used in the pricing page under 'Message Costs (Credits)'."}
+                                                                                </div>
+                                                                            </div>
+                                                                        }
+                                                                    } else {
+                                                                        html! {}
+                                                                    }
                                                                 }
-                                                            }
-                                                        } else {
-                                                            html! {
-                                                                <span class="preferred-number-label not-configured">
-                                                                    {"Twilio setup not complete"}
-                                                                </span>
-                                                            }
+                                                                <div class="subscription-promo">
+                                                                    <Link<Route> to={Route::Pricing} classes="promo-link">
+                                                                        {"Subscribe to start →"}
+                                                                    </Link<Route>>
+                                                                </div>
+                                                            </>
                                                         }
                                                     }
                                                 }
@@ -598,10 +457,79 @@ pub fn Home() -> Html {
                             } else {
                                 html! {}
                             }
-                        } else {
-                            html! {}
                         }
-                    }
+                        {
+                            if let Some(profile) = (*profile_data).as_ref() {
+                                if profile.sub_tier.as_deref() == Some("tier 3") {
+                                    if profile.server_ip.is_some() {
+                                        html! {
+                                            <ServerSelfHostInstructions
+                                                is_logged_in={true}
+                                                sub_tier={profile.sub_tier.clone()}
+                                                server_ip={profile.server_ip.clone()}
+                                                user_id={Some(profile.id.to_string())}
+                                                message={if profile.server_ip.is_none() {
+                                                    "Set up your self-hosted server below.".to_string()
+                                                } else {
+                                                    String::new()
+                                                }}
+                                                on_update={Some(refetch_profile.clone())}
+                                            />
+                                        }
+                                    } else {
+                                        html! {
+                                            <MagicLinkSection
+                                                link={(*magic_link).clone()}
+                                                error={(*magic_error).clone()}
+                                                on_regenerate={{
+                                                    let magic_link = magic_link.clone();
+                                                    let magic_error = magic_error.clone();
+                                                    let token = window().and_then(|w| w.local_storage().ok()).flatten().and_then(|s| s.get_item("token").ok()).flatten().unwrap_or_default();
+                                                    Callback::from(move |_| {
+                                                        let magic_link = magic_link.clone();
+                                                        let magic_error = magic_error.clone();
+                                                        let token = token.clone();
+                                                        spawn_local(async move {
+                                                            match Request::get(&format!("{}/api/profile/magic-link?regenerate=true", config::get_backend_url()))
+                                                                .header("Authorization", &format!("Bearer {}", token))
+                                                                .send()
+                                                                .await
+                                                            {
+                                                                Ok(resp) => {
+                                                                    if resp.ok() {
+                                                                        match resp.json::<Value>().await {
+                                                                            Ok(data) => {
+                                                                                if let Some(new_link) = data["link"].as_str() {
+                                                                                    magic_link.set(Some(new_link.to_string()));
+                                                                                    magic_error.set(None);
+                                                                                }
+                                                                            }
+                                                                            Err(_) => {
+                                                                                magic_error.set(Some("Failed to regenerate".to_string()));
+                                                                            }
+                                                                        }
+                                                                    } else {
+                                                                        magic_error.set(Some("Failed to regenerate".to_string()));
+                                                                    }
+                                                                }
+                                                                Err(_) => {
+                                                                    magic_error.set(Some("Network error".to_string()));
+                                                                }
+                                                            }
+                                                        });
+                                                    })
+                                                }}
+                                            />
+                                        }
+                                    }
+                                } else {
+                                    html! {}
+                                }
+                            } else {
+                                html! {}
+                            }
+                        }
+                    </div>
                     {
                         if let Some(profile) = (*profile_data).as_ref() {
                             if profile.sub_tier.as_deref() != Some("tier 3") {
@@ -772,7 +700,7 @@ pub fn Home() -> Html {
                             cursor: pointer;
                             transition: all 0.3s ease;
                             outline: none;
-                            grid-column: 1 / -1;
+                            width: 100%;
                         }
                         .magic-link-item:hover {
                             background: rgba(30, 144, 255, 0.1);
@@ -856,6 +784,7 @@ pub fn Home() -> Html {
                             padding: 0.75rem 1.25rem;
                             margin-left: 1rem;
                             flex-shrink: 0;
+                            grid-column: 1 / -1;
                         }
                         .promo-link {
                             color: #1E90FF;
@@ -869,50 +798,8 @@ pub fn Home() -> Html {
                             color: #7EB2FF;
                             transform: translateX(5px);
                         }
-                        .small-button-container {
-                            width: 100%;
-                            margin-top: 0.5rem;
-                            display: flex;
-                            justify-content: center;
-                        }
-                        .small-promo-link {
-                            color: #1E90FF;
-                            text-decoration: none;
-                            font-size: 0.8rem;
-                            padding: 0.5rem 1rem;
-                            border: 1px solid rgba(30, 144, 255, 0.2);
-                            border-radius: 6px;
-                            transition: all 0.3s ease;
-                        }
-                        .small-promo-link:hover {
-                            color: #7EB2FF;
-                            background: rgba(30, 144, 255, 0.1);
-                            transform: translateY(-2px);
-                        }
                         .phone-selector {
                             margin: 1.5rem 0;
-                        }
-                        .preferred-number-display {
-                            background: rgba(30, 30, 30, 0.7);
-                            border: 1px solid rgba(30, 144, 255, 0.1);
-                            border-radius: 8px;
-                            padding: 1rem;
-                            text-align: center;
-                            margin-bottom: 1rem;
-                        }
-                        .preferred-number-label {
-                            display: block;
-                            font-size: 1.1rem;
-                            font-weight: 500;
-                        }
-                        .preferred-number-label.configured {
-                            color: #7EB2FF;
-                        }
-                        .preferred-number-label.not-configured {
-                            color: #ff4444;
-                        }
-                        .phone-display {
-                            margin: 2rem 0;
                         }
                         .dashboard-container {
                             min-height: 100vh;
