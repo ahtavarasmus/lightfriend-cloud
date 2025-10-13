@@ -3,7 +3,7 @@ use diesel::sql_types::Text;
 use diesel::result::Error as DieselError;
 use std::error::Error;
 use crate::{
-    models::user_models::{User, UserSettings, UserInfo, NewUserInfo, NewUserSettings, TempVariable, NewTempVariable},
+    models::user_models::{User, UserSettings, UserInfo, NewUserInfo, NewUserSettings, Subaccount, NewSubaccount},
     schema::{users, user_settings, temp_variables, user_info},
     DbPool,
 };
@@ -154,6 +154,89 @@ impl UserCore {
                 .execute(conn)?;
             Ok(settings)
         })
+    }
+
+    pub fn find_free_subaccount_by_country(&self, country: &str) -> Result<Option<Subaccount>, DieselError> {
+        use crate::schema::subaccounts;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        let subaccount = subaccounts::table
+            .filter(subaccounts::user_id.eq("-1"))
+            .filter(subaccounts::country.eq(country))
+            .first::<Subaccount>(&mut conn)
+            .optional()?;
+        Ok(subaccount)
+    }
+
+    pub fn assign_subaccount_to_user(
+        &self,
+        sub_id: i32,
+        user_id: &str,
+        number: &str,
+        country: &str,
+        cost_this_month: f32,
+    ) -> Result<(), DieselError> {
+        use crate::schema::subaccounts;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        diesel::update(subaccounts::table.filter(subaccounts::id.eq(sub_id)))
+            .set((
+                subaccounts::user_id.eq(user_id),
+                subaccounts::number.eq(Some(number.to_string())),
+                subaccounts::country.eq(Some(country.to_string())),
+                subaccounts::cost_this_month.eq(cost_this_month),
+                subaccounts::status.eq(Some("active".to_string())),
+            ))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn insert_subaccount(&self, new_sub: &NewSubaccount) -> Result<(), DieselError> {
+        use crate::schema::subaccounts;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        diesel::insert_into(subaccounts::table)
+            .values(new_sub)
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn update_subaccount_status(
+        &self,
+        subaccount_sid: &str,
+        status: &str,
+    ) -> Result<(), DieselError> {
+        use crate::schema::subaccounts;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        diesel::update(subaccounts::table.filter(subaccounts::subaccount_sid.eq(subaccount_sid)))
+            .set(subaccounts::status.eq(Some(status.to_string())))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn update_subaccount_user_and_token(
+        &self,
+        subaccount_id: i32,
+        user_id: String,
+        auth_token: String,
+        status: &str,
+    ) -> Result<(), DieselError> {
+        use crate::schema::subaccounts;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        diesel::update(subaccounts::table.filter(subaccounts::id.eq(subaccount_id)))
+            .set((
+                subaccounts::user_id.eq(user_id),
+                subaccounts::auth_token.eq(auth_token),
+                subaccounts::status.eq(Some(status.to_string())),
+            ))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+    pub fn find_subaccount_by_id(&self, id: i32) -> Result<Option<Subaccount>, DieselError> {
+        use crate::schema::subaccounts;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        let subaccount = subaccounts::table
+            .filter(subaccounts::id.eq(id))
+            .first::<Subaccount>(&mut conn)
+            .optional()?;
+        Ok(subaccount)
     }
 
     pub fn get_all_users(&self) -> Result<Vec<User>, DieselError> {

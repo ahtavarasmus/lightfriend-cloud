@@ -35,7 +35,7 @@ impl UserRepository {
         Self { pool }
     }
 
-        pub fn get_conversation_history(
+    pub fn get_conversation_history(
         &self,
         user_id: i32,
         limit: i64,

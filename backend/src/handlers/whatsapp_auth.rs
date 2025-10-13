@@ -45,6 +45,22 @@ fn get_store_path(username: &str) -> Result<String> {
     Ok(format!("{}/{}", persistent_store_path, username))
 }
 
+//Helper function to clear the user's Matrix store (reusable for login/logout)
+async fn clear_user_store(username: &str) -> Result<()> {
+    let store_path = get_store_path(username)?;
+    if Path::new(&store_path).exists() {
+        fs::remove_dir_all(&store_path).await?;
+        sleep(Duration::from_millis(500)).await; // Small delay to ensure filesystem sync
+        fs::create_dir_all(&store_path).await?;
+        tracing::info!("Cleared Matrix store directory: {}", store_path);
+    } else {
+        // Create if it doesn't exist (for fresh users)
+        fs::create_dir_all(&store_path).await?;
+        tracing::info!("Created fresh Matrix store directory: {}", store_path);
+    }
+    Ok(())
+}
+
 // Wrapper function with retry logic
 async fn connect_whatsapp_with_retry(
     client: &mut Arc<MatrixClient>,
@@ -74,13 +90,8 @@ async fn connect_whatsapp_with_retry(
                     );
                     
                     // Clear the store
-                    let store_path = get_store_path(&username)?;
-                    if Path::new(&store_path).exists() {
-                        fs::remove_dir_all(&store_path).await?;
-                        sleep(Duration::from_millis(500)).await; // Small delay before recreation
-                        fs::create_dir_all(&store_path).await?;
-                        tracing::info!("Cleared store directory: {}", store_path);
-                    }
+                    clear_user_store(&username).await?; // Use new helper for consistency
+                   
                     
                     // Add delay before retry
                     sleep(RETRY_DELAY).await;
@@ -265,12 +276,78 @@ fn extract_pairing_code(message: &str) -> Option<String> {
     None
 }
 
+// Internal cleanup helper (callable from connect; no response needed)
+async fn cleanup_whatsapp_if_needed(
+    state: &Arc<AppState>,
+    client: &MatrixClient,
+    user_id: i32,
+) -> Result<Option<OwnedRoomId>> { // Returns old room_id if cleaned
+    let bridge = state.user_repository.get_bridge(user_id, "whatsapp")?;
+    let Some(bridge) = bridge else {
+        tracing::debug!("No existing WhatsApp bridge; skipping cleanup");
+        return Ok(None);
+    };
+
+    tracing::debug!("🧹 Detected stale WhatsApp bridge; starting cleanup");
+    
+    // Parse old room_id
+    let old_room_id = OwnedRoomId::try_from(bridge.room_id.unwrap_or_default())
+        .map_err(|_| anyhow!("Invalid old room ID"))?;
+    
+    if let Some(old_room) = client.get_room(&old_room_id) {
+        // Parallel send cleanup commands (faster: ~5s total vs 15s sequential)
+        let logout_cmd = old_room.send(RoomMessageEventContent::text_plain("!wa logout"));
+        let portals_cmd = old_room.send(RoomMessageEventContent::text_plain("!wa delete-all-portals"));
+        let session_cmd = old_room.send(RoomMessageEventContent::text_plain("!wa delete-session"));
+        let (logout_res, portals_res, session_res) = tokio::join!(logout_cmd, portals_cmd, session_cmd);
+        
+        if let Err(e) = logout_res { tracing::warn!("Logout send failed: {}", e); }
+        if let Err(e) = portals_res { tracing::warn!("Delete-portals send failed: {}", e); }
+        if let Err(e) = session_res { tracing::warn!("Delete-session send failed: {}", e); }
+        
+        sleep(Duration::from_secs(3)).await; // Brief wait for bridge to process (reduced from 5s*3)
+    }
+
+    // Delete DB record
+    state.user_repository.delete_bridge(user_id, "whatsapp")?;
+
+    // Conditional store clear (only if no other bridges)
+    let has_active_bridges = state.user_repository.has_active_bridges(user_id)?;
+    if !has_active_bridges {
+        let username = client.user_id()
+            .ok_or(anyhow!("User ID unavailable"))?
+            .localpart()
+            .to_string();
+        clear_user_store(&username).await.map_err(|e| {
+            tracing::error!("Store clear failed during auto-reset: {}", e);
+            anyhow!("Cleanup incomplete: {}", e)
+        })?;
+        tracing::info!("Auto-cleared store for user {} (no other bridges)", user_id);
+        
+        // Clear caches
+        let mut matrix_clients = state.matrix_clients.lock().await;
+        let mut sync_tasks = state.matrix_sync_tasks.lock().await;
+        if let Some(task) = sync_tasks.remove(&user_id) { task.abort(); }
+        let _ = matrix_clients.remove(&user_id);
+    } else {
+        tracing::debug!("Other bridges active; skipping store clear during auto-reset");
+    }
+
+    tracing::debug!("✅ WhatsApp cleanup complete");
+    Ok(Some(old_room_id))
+}
+
 
 pub async fn start_whatsapp_connection(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
 ) -> Result<AxumJson<WhatsappConnectionResponse>, (StatusCode, AxumJson<serde_json::Value>)> {
     tracing::debug!("🚀 Starting WhatsApp connection process for user {}", auth_user.user_id);
+
+    // Check for and delete any existing WhatsApp bridge to start fresh
+    if let Err(e) = state.user_repository.delete_bridge(auth_user.user_id, "whatsapp") {
+        tracing::warn!("No existing bridge to delete or error deleting: {}", e);
+    }
 
     // Fetch user's phone number
     let phone_number = state
@@ -302,6 +379,12 @@ pub async fn start_whatsapp_connection(
             )
         })?;
     tracing::debug!("✅ Matrix client obtained for user: {}", client.user_id().unwrap());
+
+    // Auto-cleanup if leftovers detected
+    if let Err(e) = cleanup_whatsapp_if_needed(&state, &client, auth_user.user_id).await {
+        // Don't fail on cleanup error (proceed to fresh connect/retry)
+        tracing::warn!("Auto-cleanup had issues but continuing: {}", e);
+    }
 
     // Get bridge bot from environment
     let bridge_bot = std::env::var("WHATSAPP_BRIDGE_BOT")
@@ -701,29 +784,25 @@ pub async fn resync_whatsapp(
     }
 }
 
-
 pub async fn disconnect_whatsapp(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
 ) -> Result<AxumJson<serde_json::Value>, (StatusCode, AxumJson<serde_json::Value>)> {
     tracing::debug!("🔌 Starting WhatsApp disconnection process for user {}", auth_user.user_id);
-
     // Get the bridge information first
     let bridge = state.user_repository.get_bridge(auth_user.user_id, "whatsapp")
         .map_err(|e| {
-            tracing::error!("Failed to get WhatsApp bridge: {}", e);
+            tracing::error!("Failed to get WhatsApp bridge info: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 AxumJson(json!({"error": "Failed to get WhatsApp bridge info"})),
             )
         })?;
-
     let Some(bridge) = bridge else {
         return Ok(AxumJson(json!({
             "message": "WhatsApp was not connected"
         })));
     };
-
     // Get or create Matrix client using the cached version
     let client = matrix_auth::get_cached_client(auth_user.user_id, &state)
         .await
@@ -734,33 +813,27 @@ pub async fn disconnect_whatsapp(
                 AxumJson(json!({"error": format!("Failed to initialize Matrix client: {}", e)})),
             )
         })?;
-
     // Get the room
     let room_id = OwnedRoomId::try_from(bridge.room_id.unwrap_or_default())
         .map_err(|_| (
             StatusCode::INTERNAL_SERVER_ERROR,
             AxumJson(json!({"error": "Invalid room ID format"})),
         ))?;
-
     if let Some(room) = client.get_room(&room_id) {
         tracing::debug!("📤 Sending WhatsApp logout command");
         // Send logout command
         if let Err(e) = room.send(RoomMessageEventContent::text_plain("!wa logout")).await {
             tracing::error!("Failed to send logout command: {}", e);
         }
-
         // Wait a moment for the logout to process
         sleep(Duration::from_secs(5)).await;
-
         tracing::debug!("🧹 Cleaning up WhatsApp portals");
         // Send command to delete all portals
         if let Err(e) = room.send(RoomMessageEventContent::text_plain("!wa delete-all-portals")).await {
             tracing::error!("Failed to send delete-portals command: {}", e);
         }
-
         // Wait a moment for the cleanup to process
         sleep(Duration::from_secs(5)).await;
-
         tracing::debug!("🗑️ Sending delete-session command");
         // Send delete-session command as a final cleanup
         if let Err(e) = room.send(RoomMessageEventContent::text_plain("!wa delete-session")).await {
@@ -768,7 +841,6 @@ pub async fn disconnect_whatsapp(
         }
         sleep(Duration::from_secs(5)).await;
     }
-
     // Delete the bridge record
     state.user_repository.delete_bridge(auth_user.user_id, "whatsapp")
         .map_err(|e| {
@@ -778,8 +850,8 @@ pub async fn disconnect_whatsapp(
                 AxumJson(json!({"error": "Failed to delete bridge record"})),
             )
         })?;
-
-    // Check if there are any remaining active bridges
+    
+    // UPDATED: Check for remaining active bridges and clear store if none left
     let has_active_bridges = state.user_repository.has_active_bridges(auth_user.user_id)
         .map_err(|e| {
             tracing::error!("Failed to check active bridges: {}", e);
@@ -788,18 +860,27 @@ pub async fn disconnect_whatsapp(
                 AxumJson(json!({"error": "Failed to check active bridges"})),
             )
         })?;
-
     if !has_active_bridges {
+        // FIXED: Properly propagate error type for ? operator
+        let user_id_opt = client.user_id().ok_or((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            AxumJson(json!({"error": "User ID not available"})),
+        ))?;
+        let username = user_id_opt.localpart().to_string();
+        if let Err(e) = clear_user_store(&username).await {
+            tracing::error!("Failed to clear user store on final disconnect: {}", e);
+            // Don't fail the operation; log and continue
+        } else {
+            tracing::info!("Cleared Matrix store for user {} (no active bridges left)", auth_user.user_id);
+        }
         // No active bridges left, remove client and sync task
         let mut matrix_clients = state.matrix_clients.lock().await;
         let mut sync_tasks = state.matrix_sync_tasks.lock().await;
-
         // Remove and abort the sync task if it exists
         if let Some(task) = sync_tasks.remove(&auth_user.user_id) {
             task.abort();
             tracing::debug!("Aborted sync task for user {}", auth_user.user_id);
         }
-
         // Remove the client if it exists
         if matrix_clients.remove(&auth_user.user_id).is_some() {
             tracing::debug!("Removed Matrix client for user {}", auth_user.user_id);
@@ -807,7 +888,6 @@ pub async fn disconnect_whatsapp(
     } else {
         tracing::debug!("Other active bridges exist for user {}, keeping Matrix client", auth_user.user_id);
     }
-
     tracing::debug!("✅ WhatsApp disconnection completed for user {}", auth_user.user_id);
     Ok(AxumJson(json!({
         "message": "WhatsApp disconnected successfully"

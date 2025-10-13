@@ -77,7 +77,6 @@ pub struct ImportancePriorityResponse {
     service_type: String,
 }
 
-
 // Waiting Checks handlers
 pub async fn create_waiting_check(
     State(state): State<Arc<AppState>>,

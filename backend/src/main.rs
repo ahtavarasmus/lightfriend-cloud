@@ -67,6 +67,7 @@ mod utils {
     pub mod elevenlabs_prompts;
     pub mod imap_utils;
     pub mod qr_utils;
+    pub mod self_host_twilio;
 }
 mod proactive {
     pub mod utils;

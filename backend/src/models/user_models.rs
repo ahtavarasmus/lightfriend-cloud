@@ -18,6 +18,7 @@ use crate::schema::temp_variables;
 use crate::schema::message_history;
 use crate::schema::user_info;
 use crate::schema::uber;
+use crate::schema::subaccounts;
 
 
 
@@ -507,6 +508,34 @@ pub struct NewUserSettings {
     pub critical_enabled: Option<String>,
     pub proactive_agent_on: bool,
     pub notify_about_calls: bool, 
+}
+
+
+#[derive(Queryable, Insertable)]
+#[diesel(table_name = subaccounts)]
+pub struct Subaccount {
+    pub id: i32,
+    pub user_id: String,
+    pub subaccount_sid: String,
+    pub auth_token: String,
+    pub country: Option<String>,
+    pub number: Option<String>,
+    pub cost_this_month: Option<f32>,
+    pub created_at: Option<i32>,
+    pub status: Option<String>,
+}
+
+#[derive(Insertable)]
+#[diesel(table_name = subaccounts)]
+pub struct NewSubaccount {
+    pub user_id: String,
+    pub subaccount_sid: String,
+    pub auth_token: String,
+    pub country: Option<String>,
+    pub number: Option<String>,
+    pub cost_this_month: Option<f32>,
+    pub created_at: Option<i32>,
+    pub status: Option<String>,
 }
 
 

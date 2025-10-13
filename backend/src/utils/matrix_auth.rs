@@ -2,7 +2,6 @@ use anyhow::{anyhow, Result};
 use hmac::{Hmac, Mac};
 use reqwest::Client as HttpClient;
 use matrix_sdk::store::RoomLoadSettings;
-use crate::repositories::user_repository::UserRepository;
 use serde_json::json;
 use sha1::Sha1;
 use uuid::Uuid;
@@ -13,58 +12,8 @@ use matrix_sdk::{
 };
 use std::sync::Arc;
 use reqwest;
-use tokio::time::{sleep, Duration};
 use url::Url;
-use sha2::Digest;
-use tokio::sync::Mutex;
-use std::collections::HashMap;
-use crate::utils::encryption::{encrypt, decrypt};
-
-
-/// Checks for and joins any rooms the user has been invited to
-/// 
-/// # Arguments
-/// * `client` - The Matrix client to use for checking invitations
-/// 
-/// # Returns
-/// The number of rooms joined, or an error
-pub async fn join_invited_rooms(client: &MatrixClient) -> Result<usize> {
-    tracing::info!("Checking for room invitations for user {}", client.user_id().unwrap_or(&OwnedUserId::try_from("@unknown:unknown").unwrap()));
-    
-    // Get all rooms where the user has been invited
-    let invited_rooms: Vec<_> = client.invited_rooms();
-
-    if invited_rooms.is_empty() {
-        tracing::info!("No room invitations found");
-        return Ok(0);
-    }
-    
-    tracing::info!("Found {} room invitations", invited_rooms.clone().len());
-    let mut joined_count = 0;
-    
-    for room in invited_rooms.clone() {
-        let room_id = room.room_id();
-        tracing::info!("Attempting to join room");
-        
-        match client.join_room_by_id(room_id).await {
-            Ok(_) => {
-                tracing::info!("Successfully joined room");
-                joined_count += 1;
-            }
-            Err(e) => {
-                tracing::error!("Failed to join room {}", e);
-                // Continue with other rooms even if one fails
-            }
-        }
-
-        // Take a breath - wait 1 second between each room join
-        sleep(Duration::from_secs(1)).await;
-    }
-    
-    tracing::info!("Joined {} rooms out of {} invitations", joined_count, invited_rooms.len());
-    Ok(joined_count)
-}
-
+use crate::utils::encryption::decrypt;
 
 pub async fn register_user(homeserver: &str, shared_secret: &str) -> Result<(String, String, String, String)> {
     tracing::info!("🔑 Starting Matrix user registration...");

@@ -145,6 +145,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    subaccounts (id) {
+        id -> Integer,
+        user_id -> Text,
+        subaccount_sid -> Text,
+        auth_token -> Text,
+        country -> Nullable<Text>,
+        number -> Nullable<Text>,
+        cost_this_month -> Nullable<Float>,
+        created_at -> Nullable<Integer>,
+        status -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     task_notifications (id) {
         id -> Nullable<Integer>,
         user_id -> Integer,
@@ -318,6 +332,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     message_history,
     priority_senders,
     processed_emails,
+    subaccounts,
     task_notifications,
     temp_variables,
     uber,

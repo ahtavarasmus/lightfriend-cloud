@@ -25,39 +25,6 @@ pub struct MessageResponse {
 }
 
 #[derive(Deserialize)]
-pub struct ConversationResponse {
-    sid: String,
-    chat_service_sid: String,
-}
-
-#[derive(Deserialize)]
-pub struct ConversationsListResponse {
-    conversations: Vec<ConversationResponse>,
-}
-
-#[derive(Deserialize)]
-pub struct MessagesListResponse {
-    messages: Vec<MessageInfo>,
-}
-
-#[derive(Deserialize)]
-pub struct MessageInfo {
-    author: String,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct ParticipantResponse {
-    pub sid: String,
-    pub messaging_binding: Option<MessagingBinding>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct MessagingBinding {
-    pub address: Option<String>,
-    pub proxy_address: Option<String>,
-}
-
-#[derive(Deserialize)]
 struct PhoneNumbersResponse {
     incoming_phone_numbers: Vec<PhoneNumberInfo>,
 }
