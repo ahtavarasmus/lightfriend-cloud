@@ -188,7 +188,9 @@ async fn main() {
         .with_file(true)
         .with_line_number(true)
         .init();
-    let manager = ConnectionManager::<SqliteConnection>::new("database.db");
+    let database_url = std::env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set in environment");
+    let manager = ConnectionManager::<SqliteConnection>::new(database_url);
     let pool = r2d2::Pool::builder()
         .build(manager)
         .expect("Failed to create pool");
