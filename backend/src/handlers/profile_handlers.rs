@@ -40,6 +40,7 @@ pub struct UpdateProfileRequest {
     save_context: Option<i32>,
     location: String,
     nearby_places: String,
+    preferred_number: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -804,6 +805,7 @@ pub async fn update_profile(
         update_req.save_context,
         &update_req.location,
         &update_req.nearby_places,
+        update_req.preferred_number.as_deref(),
     ) {
         Ok(_) => {
             if let Err(e) = state.user_core.update_agent_language(auth_user.user_id, &update_req.agent_language) {

@@ -655,34 +655,46 @@ pub async fn send_conversation_message(
     }
 
     // Determine From strategy
+    let preferred = user.preferred_number.as_ref().map(String::as_str).unwrap_or("");
+    let mut from_number = preferred.to_string();
     let mut use_messaging_service = false;
-    let mut from_number = user.preferred_number.clone().unwrap_or_default();
+    let mut update_preferred = false;
 
-    if let Some(c) = country {
-        match c.as_str() {
-            "US" => use_messaging_service = true,
-            "CA" => from_number = env::var("CAN_PHONE").unwrap_or_else(|_| { tracing::error!("CAN_PHONE not set"); user.preferred_number.clone().unwrap_or_default() }),
-            "FI" => from_number = env::var("FIN_PHONE").unwrap_or_else(|_| { tracing::error!("FIN_PHONE not set"); user.preferred_number.clone().unwrap_or_default() }),
-            "NL" => from_number = env::var("NL_PHONE").unwrap_or_else(|_| { tracing::error!("NL_PHONE not set"); user.preferred_number.clone().unwrap_or_default() }),
-            "GB" => from_number = env::var("GB_PHONE").unwrap_or_else(|_| { tracing::error!("GB_PHONE not set"); user.preferred_number.clone().unwrap_or_default() }),
-            "AU" => from_number = env::var("AUS_PHONE").unwrap_or_else(|_| { tracing::error!("AUS_PHONE not set"); user.preferred_number.clone().unwrap_or_default() }),
-            _ => tracing::info!("Using preferred_number for unsupported country: {}", c),
+    if preferred.is_empty() {
+        update_preferred = true;
+        if let Some(c) = country.clone() {
+            match c.as_str() {
+                "US" => {
+                    use_messaging_service = true;
+                    update_preferred = false;
+                }
+                "CA" => from_number = env::var("CAN_PHONE").expect("CAN_PHONE not set"),
+                "FI" => from_number = env::var("FIN_PHONE").expect("FIN_PHONE not set"),
+                "NL" => from_number = env::var("NL_PHONE").expect("NL_PHONE not set"),
+                "GB" => from_number = env::var("GB_PHONE").expect("GB_PHONE not set"),
+                "AU" => from_number = env::var("AUS_PHONE").expect("AUS_PHONE not set"),
+                _ => tracing::info!("Using empty from_number for unsupported country: {}", c),
+            }
         }
     }
 
-    // Build form_data
-    let mut form_data = vec![
-        ("To", user.phone_number.as_str()),
-        ("Body", body),
-    ];
-
-    let sid = env::var("TWILIO_MESSAGING_SERVICE_SID").expect("TWILIO_MESSAGING_SERVICE_SID not set");
-    let sid_str = sid.as_str();
-    if use_messaging_service {
-        form_data.push(("MessagingServiceSid", sid_str));
-    } else {
-        form_data.push(("From", from_number.as_str()));
+    if update_preferred && !from_number.is_empty() {
+        let _ = state.user_core.update_preferred_number(user.id, &from_number).map_err(|e| tracing::error!("Failed to update preferred_number for user {}: {:?}", user.id, e));
     }
+
+    // Build form_data
+    let mut form_data = vec![("To", user.phone_number.as_str()), ("Body", body)];
+    let sid = env::var("TWILIO_MESSAGING_SERVICE_SID").expect("TWILIO_MESSAGING_SERVICE_SID not set");
+
+    if use_messaging_service {
+        form_data.push(("MessagingServiceSid", sid.as_str()));
+    } else if !from_number.is_empty() {
+        form_data.push(("From", from_number.as_str()));
+    } else {
+        tracing::warn!("No valid From available for user {} and country {:?}", user.id, country);
+        // Fallback or error as needed
+    }
+
 
     // Handle media_sid if provided
     let media_url: String;

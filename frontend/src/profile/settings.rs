@@ -10,8 +10,10 @@ use serde::Serialize;
 use wasm_bindgen_futures::spawn_local;
 use crate::profile::billing_models::UserProfile;
 use web_sys::js_sys::encode_uri_component;
+
 const MAX_NICKNAME_LENGTH: usize = 30;
 const MAX_INFO_LENGTH: usize = 500;
+
 #[derive(Serialize)]
 struct UpdateProfileRequest {
     email: String,
@@ -25,17 +27,21 @@ struct UpdateProfileRequest {
     save_context: Option<i32>,
     location: String,
     nearby_places: String,
+    preferred_number: Option<String>,
 }
+
 #[derive(Properties, PartialEq, Clone)]
 pub struct SettingsPageProps {
     pub user_profile: UserProfile,
     pub on_profile_update: Callback<UserProfile>,
 }
+
 #[function_component]
 pub fn SettingsPage(props: &SettingsPageProps) -> Html {
     let user_profile = use_state(|| props.user_profile.clone());
     let email = use_state(|| (*user_profile).email.clone());
     let phone_number = use_state(|| (*user_profile).phone_number.clone());
+    let preferred_number = use_state(|| (*user_profile).preferred_number.clone());
     let nickname = use_state(|| (*user_profile).nickname.clone().unwrap_or_default());
     let info = use_state(|| (*user_profile).info.clone().unwrap_or_default());
     let timezone = use_state(|| (*user_profile).timezone.clone().unwrap_or_else(|| String::from("UTC")));
@@ -53,10 +59,12 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
     let success = use_state(|| None::<String>);
     let is_editing = use_state(|| false);
     let navigator = use_navigator().unwrap();
+
     // Update local state when props change
     {
         let email = email.clone();
         let phone_number = phone_number.clone();
+        let preferred_number = preferred_number.clone();
         let nickname = nickname.clone();
         let info = info.clone();
         let timezone = timezone.clone();
@@ -71,6 +79,7 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
             info!("{}", &format!("Props notification type: {:?}", props_profile.notification_type));
             email.set(props_profile.email.clone());
             phone_number.set(props_profile.phone_number.clone());
+            preferred_number.set(props_profile.preferred_number.clone());
             nickname.set(props_profile.nickname.clone().unwrap_or_default());
             info.set(props_profile.info.clone().unwrap_or_default());
             timezone.set(props_profile.timezone.clone().unwrap_or_else(|| String::from("UTC")));
@@ -82,6 +91,7 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
             || ()
         }, props.user_profile.clone());
     }
+
     let is_editing_clone = is_editing.clone();
     let nearby_places_clone = nearby_places.clone();
     let error_clone = error.clone();
@@ -130,10 +140,11 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
         },
         location.clone(),
     );
- 
+
     let on_edit = {
         let email = email.clone();
         let phone_number = phone_number.clone();
+        let preferred_number = preferred_number.clone();
         let nickname = nickname.clone();
         let info = info.clone();
         let error = error.clone();
@@ -152,6 +163,7 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
         Callback::from(move |_e: MouseEvent| {
             let email = email.clone();
             let phone_number = phone_number.clone();
+            let preferred_number = preferred_number.clone();
             let nickname = nickname.clone();
             let info = info.clone();
             let timezone = timezone.clone();
@@ -190,6 +202,7 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
                         .json(&UpdateProfileRequest {
                             email: (*email).clone(),
                             phone_number: (*phone_number).clone(),
+                            preferred_number: (*preferred_number).clone(),
                             nickname: (*nickname).clone(),
                             info: (*info).clone(),
                             timezone: (*timezone).clone(),
@@ -222,7 +235,7 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
                                     phone_number: (*phone_number).clone(),
                                     nickname: Some((*nickname).clone()),
                                     info: Some((*info).clone()),
-                                    preferred_number: (*user_profile).preferred_number.clone(),
+                                    preferred_number: (*preferred_number).clone(),
                                     timezone: Some((*timezone).clone()),
                                     timezone_auto: Some(*timezone_auto),
                                     agent_language: (*agent_language).clone(),
@@ -254,7 +267,7 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
                                 props.on_profile_update.emit(updated_profile.clone());
                                 // Check if phone number was changed
                                 let phone_changed = (*user_profile).phone_number != (*phone_number).clone();
-                             
+                           
                                 if phone_changed {
                                     // If phone number changed, redirect to home for verification
                                     navigator.push(&Route::Home);
@@ -262,7 +275,7 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
                                     success.set(Some("Profile updated successfully".to_string()));
                                     error.set(None);
                                     is_editing.set(false);
-                                 
+                               
                                     // Clear success message after 3 seconds
                                     let success_clone = success.clone();
                                     spawn_local(async move {
@@ -282,28 +295,29 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
             });
         })
     };
-let on_timezone_update = {
-    let timezone = timezone.clone();
-    let user_profile = user_profile.clone();
-    let props = props.clone();
-    let timezone_auto = timezone_auto.clone();
- 
-    Callback::from(move |new_timezone: String| {
-        // Only update if automatic timezone is enabled
-        if *timezone_auto {
-            timezone.set(new_timezone.clone());
-         
-            // Update the user_profile state with the new timezone
-            let mut updated_profile = (*user_profile).clone();
-            updated_profile.timezone = Some(new_timezone.clone());
-            updated_profile.timezone_auto = Some(*timezone_auto);
-            user_profile.set(updated_profile.clone());
-         
-            // Notify parent component
-            props.on_profile_update.emit(updated_profile);
-        }
-    })
-};
+
+    let on_timezone_update = {
+        let timezone = timezone.clone();
+        let user_profile = user_profile.clone();
+        let props = props.clone();
+        let timezone_auto = timezone_auto.clone();
+        Callback::from(move |new_timezone: String| {
+            // Only update if automatic timezone is enabled
+            if *timezone_auto {
+                timezone.set(new_timezone.clone());
+       
+                // Update the user_profile state with the new timezone
+                let mut updated_profile = (*user_profile).clone();
+                updated_profile.timezone = Some(new_timezone.clone());
+                updated_profile.timezone_auto = Some(*timezone_auto);
+                user_profile.set(updated_profile.clone());
+       
+                // Notify parent component
+                props.on_profile_update.emit(updated_profile);
+            }
+        })
+    };
+
     html! {
         <>
         <div class="profile-info">
@@ -321,7 +335,7 @@ let on_timezone_update = {
                     html! {}
                 }
             }
-         
+       
             {
                 if (*user_profile).sub_tier != Some("self_hosted".to_string()) {
                     html! {
@@ -353,7 +367,7 @@ let on_timezone_update = {
                     html! {}
                 }
             }
-         
+       
             <div class="profile-field">
                 <span class="field-label">{"Phone"}</span>
                 {
@@ -374,6 +388,74 @@ let on_timezone_update = {
                         html! {
                             <span class="field-value">
                                 {&(*user_profile).phone_number}
+                            </span>
+                        }
+                    }
+                }
+            </div>
+            <div class="profile-field">
+                <span class="field-label">{"Preferred Number"}</span>
+                {
+                    if *is_editing {
+                        let current_value = (*preferred_number).clone().unwrap_or_default();
+                        let on_preferred_change = {
+                            let preferred_number = preferred_number.clone();
+                            Callback::from(move |e: Event| {
+                                let select: HtmlInputElement = e.target_unchecked_into();
+                                let value = select.value();
+                                let new_value = if value.is_empty() {
+                                    None
+                                } else {
+                                    Some(value)
+                                };
+                                preferred_number.set(new_value);
+                            })
+                        };
+                        html! {
+                            <select class="profile-input" value={current_value} onchange={on_preferred_change}>
+                                <option value="">{ "None" }</option>
+                                <option value="+358454901522">{"Finland"}</option>
+                                <option value="+18153684737">{"USA"}</option>
+                                <option value="+61489260976">{"Australia"}</option>
+                                <option value="+447383240344">{"UK"}</option>
+                                <option value="+12892066453">{"Canada"}</option>
+                                <option value="+3197010207742">{"Netherlands"}</option>
+                                {
+                                    if let Some(current) = (*preferred_number).clone() {
+                                        if !current.is_empty() && !(
+                                            current == "+358454901522" ||
+                                            current == "+18153684737" ||
+                                            current == "+61489260976" ||
+                                            current == "+447383240344" ||
+                                            current == "+12892066453" ||
+                                            current == "+3197010207742"
+                                        ) {
+                                            html! {
+                                                <option value={current.clone()}>{ format!("Custom: {}", current) }</option>
+                                            }
+                                        } else {
+                                            html! {}
+                                        }
+                                    } else {
+                                        html! {}
+                                    }
+                                }
+                            </select>
+                        }
+                    } else {
+                        html! {
+                            <span class="field-value">
+                                {
+                                    if let Some(pn) = &(*user_profile).preferred_number {
+                                        if pn.is_empty() {
+                                            "None".to_string()
+                                        } else {
+                                            pn.clone()
+                                        }
+                                    } else {
+                                        "None".to_string()
+                                    }
+                                }
                             </span>
                         }
                     }
