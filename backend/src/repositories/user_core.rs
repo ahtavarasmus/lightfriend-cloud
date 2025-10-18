@@ -4,7 +4,7 @@ use diesel::result::Error as DieselError;
 use std::error::Error;
 use crate::{
     models::user_models::{User, UserSettings, UserInfo, NewUserInfo, NewUserSettings, Subaccount, NewSubaccount},
-    schema::{users, user_settings, temp_variables, user_info},
+    schema::{users, user_settings, user_info},
     DbPool,
 };
 
@@ -642,24 +642,6 @@ impl UserCore {
             .execute(&mut conn)?;
             
         Ok(())
-    }
-
-    pub fn clear_confirm_send_event(&self, user_id: i32) -> Result<(), DieselError> {
-        let mut conn = self.pool.get().expect("Failed to get DB connection");
-        
-        // Start a transaction
-        conn.transaction(|conn| {
-            // Clear the confirm_send_event flag
-            diesel::update(users::table.find(user_id))
-                .set(users::confirm_send_event.eq::<Option<String>>(None))
-                .execute(conn)?;
-
-            // Delete any existing temp variables for this user
-            diesel::delete(temp_variables::table.filter(temp_variables::user_id.eq(user_id)))
-                .execute(conn)?;
-
-            Ok(())
-        })
     }
 
     pub fn update_digests(&self, user_id: i32, morning_digest: Option<&str>, day_digest: Option<&str>, evening_digest: Option<&str>) -> Result<(), DieselError> {

@@ -14,7 +14,6 @@ use crate::schema::google_tasks;
 use crate::schema::task_notifications;
 use crate::schema::calendar_notifications;
 use crate::schema::user_settings;
-use crate::schema::temp_variables;
 use crate::schema::message_history;
 use crate::schema::user_info;
 use crate::schema::uber;
@@ -84,37 +83,6 @@ pub struct NewUserInfo {
     pub nearby_places: Option<String>,
     pub recent_contacts: Option<String>,
 }
-
-#[derive(Queryable, Selectable, Insertable)]
-#[diesel(table_name = temp_variables)]
-#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct TempVariable {
-    pub id: i32,
-    pub user_id: i32,
-    pub confirm_send_event_type: String, // 'whatsapp', 'calendar' or 'email'
-    pub confirm_send_event_recipient: Option<String>, 
-    pub confirm_send_event_subject: Option<String>,
-    pub confirm_send_event_content: Option<String>,
-    pub confirm_send_event_start_time: Option<String>,
-    pub confirm_send_event_duration: Option<String>,
-    pub confirm_send_event_id: Option<String>,
-    pub confirm_send_event_image_url: Option<String>,
-}
-
-#[derive(Insertable)]
-#[diesel(table_name = temp_variables)]
-pub struct NewTempVariable {
-    pub user_id: i32,
-    pub confirm_send_event_type: String,
-    pub confirm_send_event_recipient: Option<String>,
-    pub confirm_send_event_subject: Option<String>,
-    pub confirm_send_event_content: Option<String>,
-    pub confirm_send_event_start_time: Option<String>,
-    pub confirm_send_event_duration: Option<String>,
-    pub confirm_send_event_id: Option<String>,
-    pub confirm_send_event_image_url: Option<String>,
-}
-
 
 #[derive(Queryable, Selectable, Insertable)]
 #[diesel(table_name = task_notifications)]

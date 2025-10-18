@@ -1,4 +1,3 @@
-
 use stripe::{
     Client,
     Customer,
@@ -601,7 +600,7 @@ fn extract_subscription_info(price_id: &str) -> SubscriptionInfo {
         check_price_id!(
             country,
             format!("STRIPE_SUBSCRIPTION_HARD_MODE_PRICE_ID_{}", country),
-            "tier 1"
+            "tier 2"
         );
        
         // Check Basic Daily price IDs (older subscriptions)

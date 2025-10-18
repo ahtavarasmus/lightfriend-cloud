@@ -101,7 +101,7 @@ fn MagicLinkSection(props: &MagicLinkProps) -> Html {
             if let Some(l) = link.as_ref() {
                 <>
                     <div style="display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; flex-wrap: wrap;">
-                        <a href={l.clone()} target="_blank" rel="noopener noreferrer" style="color: #7EB2FF; text-decoration: none; font-size: 0.9rem; word-break: break-all; max-width: 200px;">
+                        <a href={l.clone()} rel="noopener noreferrer" style="color: #7EB2FF; text-decoration: none; font-size: 0.9rem; word-break: break-all; max-width: 200px;">
                             {l.clone()}
                         </a>
                         <button onclick={Callback::from(move |_| on_regenerate.emit(()))} style="padding: 0.25rem 0.5rem; background: rgba(255, 68, 68, 0.2); border: 1px solid rgba(255, 68, 68, 0.3); border-radius: 4px; color: white; font-size: 0.8rem; cursor: pointer;">
@@ -133,15 +133,6 @@ fn MonthlyCredits(props: &MonthlyCreditsProps) -> Html {
         <div class="credit-item" tabindex="0">
             <span class="credit-label">{"Monthly Message Quota"}</span>
             <span class="credit-value">{profile.credits_left as i32}{" Messages"}</span>
-            {
-                if profile.digests_reserved > 0 {
-                    html! {
-                        <span class="credit-label">{" + ("}{profile.digests_reserved as i32}{" reserved for digests)"}</span>
-                    }
-                } else {
-                    html! {}
-                }
-            }
             {
                 if let Some(days) = profile.days_until_billing {
                     html! {

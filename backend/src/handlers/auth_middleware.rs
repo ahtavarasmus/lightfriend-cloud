@@ -154,6 +154,15 @@ pub async fn validate_tier3_self_hosted(
     next: Next,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     // Extract client IP: Prefer X-Forwarded-For, fallback to ConnectInfo
+    if std::env::var("ENVIRONMENT").expect("ENVIRONMENT not set") == "development" {
+        // Insert validated user into extensions
+        request.extensions_mut().insert(Tier3SelfHostedUser {
+            user_id: 1,
+        });
+
+        tracing::debug!("Tier 3 self-hosted validation passed for user 1");
+        return Ok(next.run(request).await);
+    }
     let client_ip = if let Some(xff_header) = request.headers().get("x-forwarded-for") {
         xff_header
             .to_str()

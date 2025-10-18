@@ -58,8 +58,6 @@ pub struct ProfileResponse {
     phone_number: String,
     nickname: Option<String>,
     verified: bool,
-    time_to_live: i32,
-    time_to_delete: bool,
     credits: f32,
     notify: bool,
     info: Option<String>,
@@ -77,7 +75,6 @@ pub struct ProfileResponse {
     sub_country: Option<String>,
     save_context: Option<i32>,
     days_until_billing: Option<i32>,
-    digests_reserved: i32,
     twilio_sid: Option<String>,
     twilio_token: Option<String>,
     openrouter_api_key: Option<String>,
@@ -121,10 +118,6 @@ pub async fn get_profile(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(json!({"error": format!("Database error: {}", e)}))
             ))?;
-            let current_time = std::time::SystemTime::now()
-                                                    .duration_since(std::time::UNIX_EPOCH)
-                                                    .unwrap()
-                                                    .as_secs() as i32;
             // Get current digest settings
             let (morning_digest_time, day_digest_time, evening_digest_time) = state.user_core.get_digests(auth_user.user_id)
                 .map_err(|e| {
@@ -139,8 +132,6 @@ pub async fn get_profile(
                 .iter()
                 .filter(|&&x| x.is_some())
                 .count() as i32;
-            let ttl = user.time_to_live.unwrap_or(0);
-            let time_to_delete = current_time > ttl;
             let days_until_billing: Option<i32> = user.next_billing_date_timestamp.map(|date| {
                 let current_time = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -148,7 +139,6 @@ pub async fn get_profile(
                     .as_secs() as i32;
                 (date - current_time) / (24 * 60 * 60)
             });
-            let digests_reserved = current_count * days_until_billing.unwrap_or(30);
             // Fetch Twilio credentials and mask them
             let (twilio_sid, twilio_token) = match state.user_core.get_twilio_credentials(auth_user.user_id) {
                 Ok((sid, token)) => {
@@ -195,20 +185,7 @@ pub async fn get_profile(
                 Err(_) => None,
             };
             // Determine country based on phone number
-            let phone_number = user.phone_number.clone();
-            let country = if phone_number.starts_with("+1") {
-                "US".to_string()
-            } else if phone_number.starts_with("+358") {
-                "FI".to_string()
-            } else if phone_number.starts_with("+31") {
-                "NL".to_string()
-            } else if phone_number.starts_with("+44") {
-                "UK".to_string()
-            } else if phone_number.starts_with("+61") {
-                "AU".to_string()
-            } else {
-                "Other".to_string()
-            };
+            let country = phone_country.clone().unwrap();
             // Get critical notification info
             let critical_info = state.user_core.get_critical_notification_info(auth_user.user_id).map_err(|e| (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -243,8 +220,6 @@ pub async fn get_profile(
                 phone_number: user.phone_number,
                 nickname: user.nickname,
                 verified: user.verified,
-                time_to_live: ttl,
-                time_to_delete: time_to_delete,
                 credits: user.credits,
                 notify: user_settings.notify,
                 info: user_info.info,
@@ -262,7 +237,6 @@ pub async fn get_profile(
                 sub_country: user_settings.sub_country,
                 save_context: user_settings.save_context,
                 days_until_billing: days_until_billing,
-                digests_reserved: digests_reserved,
                 twilio_sid: twilio_sid,
                 twilio_token: twilio_token,
                 openrouter_api_key: openrouter_api_key,
@@ -929,8 +903,6 @@ pub struct DigestsResponse {
     morning_digest_time: Option<String>,
     day_digest_time: Option<String>,
     evening_digest_time: Option<String>,
-    amount_affordable_with_messages: i32,
-    amount_affordable_with_messages_and_credits: i32,
 }
 
 #[derive(Deserialize)]
@@ -955,93 +927,10 @@ pub async fn get_digests(
             )
         })?;
 
-    // Count current active digests
-    let current_count = [morning_digest_time.as_ref(), day_digest_time.as_ref(), evening_digest_time.as_ref()]
-        .iter()
-        .filter(|&&x| x.is_some())
-        .count();
-
-    // Get next billing date
-    let mut next_billing_date = state.user_core.get_next_billing_date(auth_user.user_id)
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to get next billing date: {}", e)}))
-        ))?;
-
-    // If no next billing date found, fetch it from Stripe
-    if next_billing_date.is_none() {
-        if let Ok(Json(response)) = crate::handlers::stripe_handlers::fetch_next_billing_date(
-            State(state.clone()),
-            auth_user.clone(),
-            Path(auth_user.user_id)
-        ).await {
-            if let Some(date) = response.get("next_billing_date").and_then(|v| v.as_i64()) {
-                next_billing_date = Some(date as i32);
-            }
-        }
-    }
-
-    // Calculate days until next billing
-    let days_until_billing = next_billing_date.map(|date| {
-        let current_time = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i32;
-        (date - current_time) / (24 * 60 * 60)
-    }).unwrap_or(30); // Default to 30 days if we can't calculate
-
-    // Get user for credit check
-    let user = state.user_core.find_by_id(auth_user.user_id)
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to get user: {}", e)}))
-        ))?
-        .ok_or_else(|| (
-            StatusCode::NOT_FOUND,
-            Json(json!({"error": "User not found"}))
-        ))?;
-
-    // Calculate credits needed per digest
-    let credits_needed_per_digest = days_until_billing as i32;
-
-    // Calculate available slots (max 3 - current)
-    let available_slots = 3 - current_count as i32;
-
-    // Calculate how many additional digests user can afford with credits_left
-    let affordable_with_credits_left = if available_slots > 0 {
-        let max_affordable = (user.credits_left / credits_needed_per_digest as f32).floor() as i32;
-        std::cmp::min(max_affordable, available_slots)
-    } else {
-        0
-    };
-
-    // Calculate how many additional digests user can afford with total credits
-    let affordable_with_total_credits = if available_slots > 0 {
-        let mut max_affordable = 0;
-        for additional in 1..=available_slots {
-            let credits_needed = additional * credits_needed_per_digest;
-            if crate::utils::usage::check_user_credits(
-                &state,
-                &user,
-                "digest",
-                Some(credits_needed)
-            ).await.is_ok() {
-                max_affordable = additional;
-            } else {
-                break;
-            }
-        }
-        max_affordable
-    } else {
-        0
-    };
-
     Ok(Json(DigestsResponse {
         morning_digest_time,
         day_digest_time,
         evening_digest_time,
-        amount_affordable_with_messages: affordable_with_credits_left,
-        amount_affordable_with_messages_and_credits: affordable_with_total_credits,
     }))
 }
 
@@ -1050,22 +939,6 @@ pub async fn update_digests(
     auth_user: AuthUser,
     Json(request): Json<UpdateDigestsRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    // Get current digest settings
-    let (current_morning, current_day, current_evening) = state.user_core.get_digests(auth_user.user_id)
-        .map_err(|e| (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to get current digest settings: {}", e)}))
-        ))?;
-    // Count current active digests
-    let current_count = [current_morning.as_ref(), current_day.as_ref(), current_evening.as_ref()]
-        .iter()
-        .filter(|&&x| x.is_some())
-        .count();
-    // Count new active digests
-    let new_count = [request.morning_digest_time.as_ref(), request.day_digest_time.as_ref(), request.evening_digest_time.as_ref()]
-        .iter()
-        .filter(|&&x| x.is_some())
-        .count();
     match state.user_core.update_digests(
         auth_user.user_id,
         request.morning_digest_time.as_deref(),
@@ -1076,9 +949,6 @@ pub async fn update_digests(
             let message = String::from("Digest settings updated successfully");
             let response = json!({
                 "message": message,
-                "digests_changed": new_count != current_count,
-                "previous_digest_count": current_count,
-                "new_digest_count": new_count,
             });
             Ok(Json(response))
         },

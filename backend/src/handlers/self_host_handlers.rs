@@ -12,45 +12,6 @@ use serde_json::json;
 use std::env;
 use serde::{Deserialize, Serialize};
 
-#[derive(Deserialize)]
-pub struct SelfHostPingRequest {
-    instance_id: String,
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct PairingVerificationRequest {
-    pairing_code: String,
-    server_instance_id: String,
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct PairingVerificationResponse {
-    valid: bool,
-    number: String,
-    message: String,
-}
-
-#[derive(Deserialize)]
-pub struct SelfHostedSignupRequest {
-    pairing_code: String,
-    password: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub struct SelfHostedLoginRequest {
-    password: String,
-}
-
-#[derive(Serialize)]
-pub struct GeneratePairingCodeResponse {
-    pairing_code: String,
-}
-
-#[derive(Serialize)]
-pub struct SelfHostedStatusResponse {
-    status: String,
-}
-
 
 #[derive(Deserialize)]
 pub struct UpdateServerIpRequest {
@@ -632,7 +593,11 @@ pub async fn get_magic_link(
         })?
     };
 
-    let link = format!("https://{}.lightfriend.ai/login?token={}", user.id, token);
+    let mut link = format!("https://{}.lightfriend.ai/login?token={}", user.id, token);
+
+    if std::env::var("ENVIRONMENT").expect("ENVIRONMENT not set") == "development" {
+        link = format!("http://localhost:8090/login?token={}",token);
+    }
 
     tracing::info!("Magic link fetched/generated for user {}: {}", auth_user.user_id, link);
     Ok(AxumJson(MagicLinkResponse { link }))

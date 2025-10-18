@@ -168,21 +168,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    temp_variables (id) {
-        id -> Integer,
-        user_id -> Integer,
-        confirm_send_event_type -> Text,
-        confirm_send_event_recipient -> Nullable<Text>,
-        confirm_send_event_subject -> Nullable<Text>,
-        confirm_send_event_content -> Nullable<Text>,
-        confirm_send_event_start_time -> Nullable<Text>,
-        confirm_send_event_duration -> Nullable<Text>,
-        confirm_send_event_id -> Nullable<Text>,
-        confirm_send_event_image_url -> Nullable<Text>,
-    }
-}
-
-diesel::table! {
     uber (id) {
         id -> Nullable<Integer>,
         user_id -> Integer,
@@ -314,7 +299,6 @@ diesel::joinable!(keywords -> users (user_id));
 diesel::joinable!(message_history -> users (user_id));
 diesel::joinable!(priority_senders -> users (user_id));
 diesel::joinable!(processed_emails -> users (user_id));
-diesel::joinable!(temp_variables -> users (user_id));
 diesel::joinable!(user_info -> users (user_id));
 diesel::joinable!(user_settings -> users (user_id));
 diesel::joinable!(waiting_checks -> users (user_id));
@@ -334,7 +318,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     processed_emails,
     subaccounts,
     task_notifications,
-    temp_variables,
     uber,
     usage_logs,
     user_info,
