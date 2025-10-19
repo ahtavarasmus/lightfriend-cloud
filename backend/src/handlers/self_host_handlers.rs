@@ -491,6 +491,7 @@ pub struct VerifyTokenResponse {
     pub twilio_account_sid: Option<String>,
     pub twilio_auth_token: Option<String>,
     pub server_url: Option<String>,
+    pub tinfoil_api_key: Option<String>,
 }
 
 use crate::handlers::auth_middleware::Tier3SelfHostedUser;
@@ -532,6 +533,7 @@ pub async fn verify_token(
         twilio_account_sid: None,
         twilio_auth_token: None,
         server_url: settings.server_url,
+        tinfoil_api_key: None,
     };
 
     tracing::info!("Magic token verified and invalidated for user {}", tier3_user.user_id);
@@ -649,4 +651,50 @@ pub async fn update_server_ip(
             ))
         }
     }
+}
+
+use chrono::{DateTime, Utc};
+
+pub async fn create_temp_tinfoil_api_key(
+    user_id: String,
+    end_timestamp: i64,
+) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
+    let admin_key = env::var("TINFOIL_ADMIN_API_KEY")
+        .map_err(|_| "TINFOIL_ADMIN_API_KEY must be set")?;
+    let client = Client::new();
+
+    let dt = DateTime::<Utc>::from_timestamp(end_timestamp, 0)
+        .ok_or("Invalid timestamp")?;
+    let expires_at = dt.to_rfc3339();
+
+    let body = json!({
+        "name": format!("Temporary API Key for User {}", user_id),
+        "expires_at": expires_at,
+        "max_tokens": 1000000,
+        "metadata": {
+            "user_id": user_id
+        }
+    });
+
+    let response = client
+        .post("https://api.tinfoil.sh/api/keys")
+        .header("Authorization", format!("Bearer {}", admin_key))
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .json(&body)
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        return Err(format!("API request failed with status: {}", response.status()).into());
+    }
+
+    let json_resp: serde_json::Value = response.json().await?;
+    let new_key = json_resp
+        .get("key")
+        .and_then(|k| k.as_str())
+        .ok_or("Invalid response: missing 'key' field")?
+        .to_string();
+
+    tracing::info!("Created temporary Tinfoil API key for user {}: {}", user_id, new_key);
+    Ok(new_key)
 }

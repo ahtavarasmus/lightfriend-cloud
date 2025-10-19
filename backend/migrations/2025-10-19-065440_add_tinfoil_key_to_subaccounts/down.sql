@@ -1,0 +1,2 @@
+-- This file should undo anything in `up.sql`
+alter table subaccounts drop column tinfoil_key;

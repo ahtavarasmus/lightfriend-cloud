@@ -491,6 +491,7 @@ pub struct Subaccount {
     pub cost_this_month: Option<f32>,
     pub created_at: Option<i32>,
     pub status: Option<String>,
+    pub tinfoil_key: Option<String>,
 }
 
 #[derive(Insertable)]
@@ -504,6 +505,7 @@ pub struct NewSubaccount {
     pub cost_this_month: Option<f32>,
     pub created_at: Option<i32>,
     pub status: Option<String>,
+    pub tinfoil_key: Option<String>,
 }
 
 

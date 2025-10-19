@@ -155,6 +155,7 @@ diesel::table! {
         cost_this_month -> Nullable<Float>,
         created_at -> Nullable<Integer>,
         status -> Nullable<Text>,
+        tinfoil_key -> Nullable<Text>,
     }
 }
 

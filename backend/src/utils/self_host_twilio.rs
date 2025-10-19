@@ -405,6 +405,8 @@ pub async fn create_twilio_subaccount(
     )
     .await?;
 
+    let tinfoil_key = crate::handlers::self_host_handlers::create_temp_tinfoil_api_key(auth_user.user_id.to_string(), 1).await.unwrap();
+
     // Step 4: Insert into DB
     let new_subaccount = NewSubaccount {
         user_id: auth_user.user_id.to_string(),
@@ -415,6 +417,7 @@ pub async fn create_twilio_subaccount(
         cost_this_month: Some(0.0),
         created_at,
         status: Some("active".to_string()),
+        tinfoil_key: Some(tinfoil_key),
     };
     if let Err(e) = state.user_core.insert_subaccount(&new_subaccount) {
         tracing::error!("Failed to insert subaccount into DB: {}", e);
