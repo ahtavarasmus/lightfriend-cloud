@@ -280,12 +280,25 @@ pub async fn handle_fetch_emails(state: &Arc<AppState>, user_id: i32) -> String 
             }
         }
         Err((status, axum::Json(error))) => {
+            // Extract the actual error message from the JSON response
+            let error_detail = error.get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("Unknown error");
+
+            tracing::error!("Email fetch failed with status {}: {}", status, error_detail);
+
             let error_message = match status {
-                axum::http::StatusCode::BAD_REQUEST => "No IMAP connection found. Please check your email settings.",
-                axum::http::StatusCode::UNAUTHORIZED => "Your email credentials need to be updated.",
-                _ => "Failed to fetch emails. Please try again later.",
+                axum::http::StatusCode::BAD_REQUEST => {
+                    "I couldn't find your email connection. Please set up your email in the Lightfriend app settings.".to_string()
+                }
+                axum::http::StatusCode::UNAUTHORIZED => {
+                    "Your email credentials have expired or are invalid. Please reconnect your email in the Lightfriend app settings. If you're using Gmail, you may need to generate a new app password.".to_string()
+                }
+                _ => {
+                    format!("I ran into a problem checking your email: {}. Please try again in a moment, or check your email connection in the app settings.", error_detail)
+                }
             };
-            error_message.to_string()
+            error_message
         }
     }
 }

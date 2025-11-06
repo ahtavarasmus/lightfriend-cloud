@@ -121,12 +121,32 @@ pub async fn imap_status(
         })?;
 
     match credentials {
-        Some((email, _password, imap_server, imap_port)) => {
+        Some((email, password, imap_server, imap_port)) => {
+            // Actually test the connection instead of just checking if credentials exist
+            tracing::debug!("Testing IMAP connection for user {}", auth_user.user_id);
 
-            Ok(Json(ImapStatus {
-                connected: true,
-                email: Some(email),
-            }))
+            match connect_imap(&email, &password, imap_server.as_deref(), imap_port.map(|val| {val as u16})).await {
+                Ok(mut session) => {
+                    // Logout immediately after verification
+                    if let Err(e) = session.logout() {
+                        tracing::warn!("Failed to logout IMAP session during status check: {}", e);
+                    }
+
+                    tracing::info!("IMAP connection test successful for user {}", auth_user.user_id);
+                    Ok(Json(ImapStatus {
+                        connected: true,
+                        email: Some(email),
+                    }))
+                }
+                Err(e) => {
+                    tracing::error!("IMAP connection test failed for user {}: {}", auth_user.user_id, e);
+                    // Return connected: false if test fails, so frontend shows accurate status
+                    Ok(Json(ImapStatus {
+                        connected: false,
+                        email: Some(email),
+                    }))
+                }
+            }
         }
         None => Ok(Json(ImapStatus {
             connected: false,

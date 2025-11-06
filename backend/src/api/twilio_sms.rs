@@ -1424,13 +1424,25 @@ Never use markdown, HTML, or any special formatting characters in responses. Ret
                 Ok(follow_up_result) => {
                     tracing::debug!("Received follow-up response from model");
                     let response = follow_up_result.choices[0].message.content.clone().unwrap_or_default();
-                    response
+
+                    // If we got an empty response, fall back to the tool answer
+                    if response.trim().is_empty() {
+                        tracing::warn!("Follow-up response was empty, using tool answer directly");
+                        tool_answers.values().next()
+                            .map(|ans| ans.chars().take(400).collect::<String>())
+                            .unwrap_or_else(|| "I processed your request but couldn't generate a response.".to_string())
+                    } else {
+                        response
+                    }
                 }
                 Err(e) => {
-                    tracing::info!("Failed to get follow-up completion: {}", e);
+                    tracing::error!("Failed to get follow-up completion: {}", e);
+
+                    // Return the tool answer directly without truncating too much
+                    // SMS can handle up to 1600 chars, so 500 is reasonable
                     tool_answers.values().next()
-                        .map(|ans| format!("Based on my research: {}", ans.chars().take(370).collect::<String>()))
-                        .unwrap_or_else(|| "I apologize, but I encountered an error processing your request.".to_string())
+                        .map(|ans| ans.chars().take(500).collect::<String>())
+                        .unwrap_or_else(|| "I apologize, but I encountered an error processing your request. Please try again.".to_string())
                 }
             }
         }

@@ -47,6 +47,20 @@ pub async fn create_unified_subscription_checkout(
     Json(body): Json<SubscriptionCheckoutBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     println!("Starting create_subscription_checkout for user_id: {}", user_id);
+
+    // Check if new subscriptions are blocked
+    if let Ok(blocked) = std::env::var("BLOCK_NEW_SUBSCRIPTIONS") {
+        if blocked == "true" || blocked == "1" {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(json!({
+                    "error": "New subscriptions are temporarily unavailable",
+                    "message": "We're currently not accepting new subscriptions as we prepare for improvements to our service. You'll be notified via email when subscriptions are available again."
+                })),
+            ));
+        }
+    }
+
     // Verify user exists in database
     let user = state
         .user_core

@@ -62,6 +62,10 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
     let subscription_type = props.subscription_type.clone();
     let selected_country = props.selected_country.clone();
     let selected_addons = props.selected_addons.clone();
+
+    // Check if subscriptions are blocked (hardcoded for now)
+    let subscriptions_blocked = true;
+
     let onclick = {
         let user_id = user_id.clone();
         let subscription_type = subscription_type.clone();
@@ -126,7 +130,11 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
             });
         })
     };
-    let button_text = "Subscribe";
+    let button_text = if subscriptions_blocked {
+        "Temporarily Unavailable"
+    } else {
+        "Subscribe"
+    };
     let button_css = r#"
     .iq-button {
         background: linear-gradient(45deg, #1E90FF, #4169E1);
@@ -151,10 +159,12 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
         background: rgba(30, 30, 30, 0.5);
         cursor: not-allowed;
         border: 1px solid rgba(255, 255, 255, 0.1);
+        opacity: 0.6;
     }
     .iq-button.disabled:hover {
         transform: none;
         box-shadow: none;
+        background: rgba(30, 30, 30, 0.5);
     }
     .iq-button.current-plan {
         background: rgba(30, 144, 255, 0.3);
@@ -179,7 +189,11 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
     html! {
         <>
             <style>{button_css}</style>
-            <button class="iq-button signup-button" {onclick}><b>{button_text}</b></button>
+            if subscriptions_blocked {
+                <button class="iq-button disabled" disabled=true><b>{button_text}</b></button>
+            } else {
+                <button class="iq-button signup-button" {onclick}><b>{button_text}</b></button>
+            }
         </>
     }
 }
@@ -1011,6 +1025,26 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         },
     ];
     let pricing_css = r#"
+    .subscription-blocked-notice {
+        max-width: 800px;
+        margin: 2rem auto;
+        padding: 2rem;
+        background: rgba(255, 165, 0, 0.15);
+        border: 2px solid rgba(255, 165, 0, 0.5);
+        border-radius: 16px;
+        text-align: center;
+    }
+    .subscription-blocked-notice h3 {
+        color: #FFA500;
+        font-size: 1.5rem;
+        margin-bottom: 1rem;
+    }
+    .subscription-blocked-notice p {
+        color: #e0e0e0;
+        font-size: 1.1rem;
+        line-height: 1.6;
+        margin-bottom: 0.5rem;
+    }
     .pricing-grid {
         display: flex;
         flex-wrap: wrap;
@@ -1433,6 +1467,14 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
                     }
                 }
             </div>
+
+            <div class="subscription-blocked-notice">
+                <h3>{"New Subscriptions Temporarily Unavailable"}</h3>
+                <p>{"We're currently not accepting new subscriptions as we prepare for improvements to our service."}</p>
+                <p>{"You'll be notified via email when subscriptions are available again."}</p>
+                <p style="margin-top: 1rem; font-size: 0.95rem;">{"Thank you for your understanding as we work to provide you with an even better experience!"}</p>
+            </div>
+
             {
                 if !props.is_logged_in {
                     if let Some(on_change) = props.on_country_change.clone() {

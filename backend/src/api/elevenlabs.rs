@@ -605,14 +605,29 @@ pub async fn handle_email_fetch_tool_call(
             })))
         },
         Err(e) => {
-            error!("Failed to fetch emails: {:?}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "error": "Failed to fetch emails",
-                    "details": format!("{:?}", e)
-                }))
-            ))
+            error!("Failed to fetch emails for user {}: {:?}", user_id, e);
+
+            // Provide user-friendly error message based on error type
+            let user_message = match e {
+                crate::handlers::imap_handlers::ImapError::NoConnection => {
+                    "It looks like you haven't connected your email yet. You can set it up in the Lightfriend app settings."
+                }
+                crate::handlers::imap_handlers::ImapError::CredentialsError(_) => {
+                    "I couldn't access your email because your credentials have expired or are invalid. Please reconnect your email in the Lightfriend app. If you're using Gmail, you may need to generate a new app password."
+                }
+                crate::handlers::imap_handlers::ImapError::ConnectionError(_) => {
+                    "I'm having trouble connecting to your email server right now. This might be a temporary issue. Please try again in a moment."
+                }
+                _ => {
+                    "I ran into a problem checking your email. Please check your email connection in the app settings and try again."
+                }
+            };
+
+            Ok(Json(json!({
+                "response": user_message,
+                "emails": [],
+                "total_count": 0
+            })))
         }
     }
 }
@@ -1314,14 +1329,28 @@ pub async fn handle_email_search_tool_call(
             }
         },
         Err(e) => {
-            error!("Failed to fetch emails: {:?}", e);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "error": "Failed to fetch emails",
-                    "details": format!("{:?}", e)
-                }))
-            ))
+            error!("Failed to fetch emails for search (user {}): {:?}", user_id, e);
+
+            // Provide user-friendly error message based on error type
+            let user_message = match e {
+                crate::handlers::imap_handlers::ImapError::NoConnection => {
+                    "It looks like you haven't connected your email yet. You can set it up in the Lightfriend app settings."
+                }
+                crate::handlers::imap_handlers::ImapError::CredentialsError(_) => {
+                    "I couldn't access your email because your credentials have expired or are invalid. Please reconnect your email in the Lightfriend app. If you're using Gmail, you may need to generate a new app password."
+                }
+                crate::handlers::imap_handlers::ImapError::ConnectionError(_) => {
+                    "I'm having trouble connecting to your email server right now. This might be a temporary issue. Please try again in a moment."
+                }
+                _ => {
+                    "I ran into a problem searching your email. Please check your email connection in the app settings and try again."
+                }
+            };
+
+            Ok(Json(json!({
+                "response": user_message,
+                "found": false
+            })))
         }
     }
 }
