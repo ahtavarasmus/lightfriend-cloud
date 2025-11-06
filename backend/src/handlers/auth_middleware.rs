@@ -26,45 +26,22 @@ use tracing::{error, info, debug};
 
 
 // Helper function to check if a tool requires subscription
+// Only tier 2 (hosted) subscribers get full access to all tools
 fn requires_subscription(path: &str, sub_tier: Option<String>, has_discount: bool) -> bool {
-    // Extract the tool name from the path
-    let tool_name = {
-        let parts: Vec<&str> = path.split('/').collect();
-        if parts.len() >= 4 && parts[2] == "call" {
-            // Path format is /api/call/{tool}[/action]
-            parts[3]
-        } else {
-            ""
-        }
-    };
-
     debug!(
         path = path,
-        tool = tool_name,
         subscription = ?sub_tier,
         discount = has_discount,
         "Checking subscription access"
     );
-    
-    // Tier 2 subscribers and users with discount get access to everything
-    if Some("self-hosted".to_string()) == sub_tier || Some("tier 2".to_string()) == sub_tier || Some("tier 1.5".to_string()) == sub_tier || has_discount {
-        debug!("User has correct subscription or discount - granting full access");
-        return false;
-    } else if Some("tier 1".to_string()) == sub_tier {
-        // Define tools available to tier 1 subscribers
-        let allowed_tools = [
-            "perplexity",
-            "weather",
-            "assistant"
-        ];
 
-        if allowed_tools.contains(&tool_name) {
-            debug!("Tool {} is allowed for tier 1 subscription", tool_name);
-            return false;
-        }
+    // Only tier 2 (hosted) subscribers and users with discount get full access to everything
+    if sub_tier == Some("tier 2".to_string()) || has_discount {
+        debug!("User has tier 2 subscription or discount - granting full access");
+        return false;
     }
-    
-    debug!("Tool {} requires subscription", tool_name);
+
+    debug!("Tool requires tier 2 subscription");
     true
 }
 

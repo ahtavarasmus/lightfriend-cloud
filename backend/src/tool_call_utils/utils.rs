@@ -412,20 +412,15 @@ pub fn create_clarify_tools() -> Vec<chat_completion::Tool> {
 }
 
 // Helper function to check if a tool is accessible based on user's status
+// Only tier 2 (hosted) subscribers get full access to all tools
 pub fn requires_subscription(tool_name: &str, sub_tier: Option<String>, has_discount: bool) -> bool {
-    // Tier 2 subscribers get access to everything
-    if Some("tier 2".to_string()) == sub_tier || Some("tier 1.5".to_string()) == sub_tier || has_discount || Some("self-hosted".to_string()) == sub_tier {
-        println!("✅ User has correct subscription - granting full access");
+    // Only tier 2 (hosted) subscribers and users with discount get full access to everything
+    if sub_tier == Some("tier 2".to_string()) || has_discount {
+        println!("✅ User has tier 2 subscription or discount - granting full access");
         return false;
-    } else if Some("tier 1".to_string()) == sub_tier {
-        let in_allowed_tools = tool_name.contains("perplexity") ||
-            tool_name.contains("weather") ||
-            tool_name.contains("assistant");
-
-        if in_allowed_tools {
-            return false;
-        }
     }
+
+    println!("❌ Tool {} requires tier 2 subscription", tool_name);
     return true;
 }
 

@@ -469,69 +469,6 @@ pub async fn create_checkout_session(
         "message": "Redirecting to Stripe Checkout for payment"
     })))
 }
-// Helper function to cancel existing subscriptions of a different tier
-async fn cancel_existing_subscriptions_of_different_tier(
-    client: &Client,
-    customer_id: &str,
-    new_tier: &str,
-) -> Result<(), (StatusCode, Json<Value>)> {
-    println!("Checking for existing subscriptions to cancel for customer: {}", customer_id);
-   
-    // List all active subscriptions for the customer
-    let subscriptions = Subscription::list(
-        client,
-        &ListSubscriptions {
-            customer: Some(customer_id.parse().unwrap()),
-            status: Some(stripe::SubscriptionStatusFilter::Active),
-            ..Default::default()
-        },
-    )
-    .await
-    .map_err(|e| {
-        println!("Failed to list subscriptions: {}", e);
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": format!("Failed to fetch existing subscriptions: {}", e)})),
-        )
-    })?;
-    // Check each subscription and cancel if it's a different tier
-    for subscription in subscriptions.data {
-        if let Some(price_id) = subscription.items.data.first()
-            .and_then(|item| item.price.as_ref())
-            .map(|price| price.id.to_string())
-        {
-            let existing_tier = extract_subscription_info(&price_id).tier;
-           
-            // If the existing subscription is a different tier, cancel it
-            if existing_tier != new_tier {
-                println!("Canceling existing {} subscription: {}", existing_tier, subscription.id);
-               
-                Subscription::update(
-                    client,
-                    &subscription.id,
-                    UpdateSubscription {
-                        cancel_at_period_end: Some(true),
-                        ..Default::default()
-                    },
-                )
-                .await
-                .map_err(|e| {
-                    println!("Failed to cancel subscription {}: {}", subscription.id, e);
-                    (
-                        StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(json!({"error": format!("Failed to cancel existing subscription: {}", e)})),
-                    )
-                })?;
-               
-                println!("Successfully scheduled cancellation for subscription: {}", subscription.id);
-            } else {
-                println!("Existing subscription {} is same tier ({}), not canceling", subscription.id, existing_tier);
-            }
-        }
-    }
-   
-    Ok(())
-}
 // Helper function to create a new Stripe customer
 async fn create_new_customer(
     client: &Client,
@@ -593,11 +530,12 @@ fn is_digital_detox_subscription(items: &[stripe::SubscriptionItem]) -> bool {
 }
 // Helper function to extract subscription info from price ID
 fn extract_subscription_info(price_id: &str) -> SubscriptionInfo {
-    // Default values
+    // Default values - all subscriptions map to tier 2 (hosted) unless it's tier 3 (self-hosted)
     let mut info = SubscriptionInfo {
         country: None,
-        tier: "tier 2", // Default to Sentinel tier
+        tier: "tier 2",
     };
+
     // Helper macro to reduce code duplication
     macro_rules! check_price_id {
         ($country:expr, $env_var:expr, $tier:expr) => {
@@ -608,61 +546,30 @@ fn extract_subscription_info(price_id: &str) -> SubscriptionInfo {
             }
         };
     }
-    // Tier 1 Plans (Hard Mode and Basic Daily)
-    for country in ["US", "FI", "NL", "UK", "AU", "OTHER"] {
-        // Check Hard Mode price IDs (older subscriptions)
-        check_price_id!(
-            country,
-            format!("STRIPE_SUBSCRIPTION_HARD_MODE_PRICE_ID_{}", country),
-            "tier 2"
-        );
-       
-        // Check Basic Daily price IDs (older subscriptions)
-        check_price_id!(
-            country,
-            format!("STRIPE_SUBSCRIPTION_BASIC_DAILY_PRICE_ID_{}", country),
-            "tier 1"
-        );
-        // Check Basic price IDs
-        check_price_id!(
-            country,
-            format!("STRIPE_SUBSCRIPTION_BASIC_PRICE_ID_{}", country),
-            "tier 1"
-        );
+
+    // Check if it's self-hosted (tier 3)
+    if price_id == std::env::var("STRIPE_SUBSCRIPTION_SELF_HOSTING_PRICE_ID").unwrap_or_default() {
+        info.tier = "tier 3";
+        return info;
     }
-    for country in ["US", "FI", "NL", "UK", "AU", "OTHER"] {
-        // Check World price IDs (older subscriptions)
-        check_price_id!(
-            country,
-            format!("STRIPE_SUBSCRIPTION_WORLD_PRICE_ID_{}", country),
-            "tier 2"
-        );
-       
-        // Check Escape Daily price IDs (older subscriptions)
-        check_price_id!(
-            country,
-            format!("STRIPE_SUBSCRIPTION_ESCAPE_DAILY_PRICE_ID_{}", country),
-            "tier 2"
-        );
-        // Check Monitoring price IDs (older subscriptions)
-        check_price_id!(
-            country,
-            format!("STRIPE_SUBSCRIPTION_MONITORING_PRICE_ID_{}", country),
-            "tier 2"
-        );
-        // Check Sentinel price IDs
-        check_price_id!(
-            country,
-            format!("STRIPE_SUBSCRIPTION_SENTINEL_PRICE_ID_{}", country),
-            "tier 2"
-        );
-        // Check new hosted plan price IDs
-        check_price_id!(
-            country,
-            format!("STRIPE_SUBSCRIPTION_HOSTED_PLAN_PRICE_ID_{}", country),
-            "tier 2"
-        );
+
+    // All legacy and current hosted plans map to tier 2
+    // Check all regional variants for both legacy and current price IDs
+    for country in ["US", "FI", "NL", "UK", "AU", "OTHER", "CA"] {
+        // Legacy price IDs (all map to tier 2 now)
+        check_price_id!(country, format!("STRIPE_SUBSCRIPTION_HARD_MODE_PRICE_ID_{}", country), "tier 2");
+        check_price_id!(country, format!("STRIPE_SUBSCRIPTION_BASIC_DAILY_PRICE_ID_{}", country), "tier 2");
+        check_price_id!(country, format!("STRIPE_SUBSCRIPTION_BASIC_PRICE_ID_{}", country), "tier 2");
+        check_price_id!(country, format!("STRIPE_SUBSCRIPTION_WORLD_PRICE_ID_{}", country), "tier 2");
+        check_price_id!(country, format!("STRIPE_SUBSCRIPTION_ESCAPE_DAILY_PRICE_ID_{}", country), "tier 2");
+        check_price_id!(country, format!("STRIPE_SUBSCRIPTION_MONITORING_PRICE_ID_{}", country), "tier 2");
+        check_price_id!(country, format!("STRIPE_SUBSCRIPTION_ORACLE_PRICE_ID_{}", country), "tier 2");
+
+        // Current price IDs
+        check_price_id!(country, format!("STRIPE_SUBSCRIPTION_SENTINEL_PRICE_ID_{}", country), "tier 2");
+        check_price_id!(country, format!("STRIPE_SUBSCRIPTION_HOSTED_PLAN_PRICE_ID_{}", country), "tier 2");
     }
+
     info
 }
 fn is_sentinel_price_id(price_id: &str) -> bool {
@@ -776,17 +683,21 @@ pub async fn stripe_webhook(
                             }
                         }
                     }
-                    // Add bonus credits for new hosted plan
+                    // Add first-time bonus credits for non-US/CA users on new hosted plans
                     if let Ok(Some(user)) = state.user_repository.find_by_stripe_customer_id(&customer_id.as_str()) {
-                        let is_eligible_for_credits = user.phone_number.starts_with("+358") || user.phone_number.starts_with("+44") || user.phone_number.starts_with("+61") || user.phone_number.starts_with("+31");
                         let sub_info = extract_subscription_info(&base_price);
-                        let is_digital_detox = is_digital_detox_subscription(&subscription.items.data);
-                        let is_hosted = sub_info.tier == "tier 2" && !is_digital_detox;
-                        if is_eligible_for_credits && is_hosted {
+                        let is_hosted = sub_info.tier == "tier 2";
+
+                        // Check if user is NOT from US/CA
+                        let is_non_us_ca = user.phone_number_country.as_deref() != Some("US")
+                            && user.phone_number_country.as_deref() != Some("CA");
+
+                        // Give 10€ starter bonus to non-US/CA users on their first subscription
+                        if is_hosted && is_non_us_ca {
                             if let Err(e) = state.user_repository.increase_credits(user.id, 10.0) {
-                                tracing::error!("Failed to add signup credits: {}", e);
+                                tracing::error!("Failed to add first-time bonus credits: {}", e);
                             } else {
-                                tracing::info!("Added 10€ signup credits for user {}", user.id);
+                                tracing::info!("Added 10€ first-time bonus credits for non-US/CA user {}", user.id);
                             }
                         }
                     }
@@ -840,59 +751,33 @@ pub async fn stripe_webhook(
                         if let Err(e) = state.user_repository.set_subscription_tier(user.id, Some(sub_info.tier)) {
                             tracing::error!("Failed to update subscription tier: {}", e);
                         }
+                        // Simplified credit allocation logic
                         let messages: f32;
                         println!("sub_tier: {}", sub_info.tier);
-                        let sentinel_us_id = std::env::var("STRIPE_SUBSCRIPTION_SENTINEL_PRICE_ID_US")
-                                .unwrap_or_default();
-                        let self_hosting_id = std::env::var("STRIPE_SUBSCRIPTION_SELF_HOSTING_PRICE_ID")
-                                .unwrap_or_default();
-                        // Calculate days until next billing for the tier 2 sentinel plans
-                        let days_until_billing = Some(subscription.current_period_end).map(|date| {
-                            let current_time = std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap()
-                                .as_secs() as i32;
-                            (date - current_time as i64) / (24 * 60 * 60)
-                        }).unwrap_or(30); // Default to 30 days if we can't calculate
-                        // Get user's active digests and count them
-                        let amount_of_digests = match state.user_core.get_digests(user.id) {
-                            Ok((morning, day, evening)) => {
-                                let mut count = 0;
-                                if morning.is_some() { count += 1; }
-                                if day.is_some() { count += 1; }
-                                if evening.is_some() { count += 1; }
-                                count as i64
-                            },
-                            Err(e) => {
-                                tracing::error!("Failed to get user digests: {}", e);
-                                0 // Default to 0 if there's an error
-                            }
-                        };
-                      
-                        if is_digital_detox {
-                            messages = 100.0;
-                        } else if base_price == sentinel_us_id {
-                            messages = 400.00 - (days_until_billing * amount_of_digests) as f32;
-                        } else if is_sentinel_price_id {
-                            if user.phone_number_country == Some("US".to_string()) || user.phone_number_country == Some("CA".to_string()) {
-                                messages = 200.00 - (days_until_billing * amount_of_digests) as f32;
-                            } else {
-                                messages = 0.0;
-                            }
-                        } else if base_price == self_hosting_id {
-                            // Self-hosting subscription - no messages
+
+                        // Tier 3 (self-hosted) gets 0 credits
+                        if sub_info.tier == "tier 3" {
                             messages = 0.0;
-                            // Update subscription tier to tier 3
-                            if let Err(e) = state.user_repository.set_subscription_tier(user.id, Some("tier 3")) {
-                                tracing::error!("Failed to update subscription tier: {}", e);
+                            tracing::info!("Self-hosted subscription (tier 3), no monthly credits");
+                        }
+                        // Tier 2 (hosted) - regional credit model
+                        else if sub_info.tier == "tier 2" {
+                            // US/CA users get 200 monthly credits
+                            if user.phone_number_country == Some("US".to_string())
+                                || user.phone_number_country == Some("CA".to_string()) {
+                                messages = 200.0;
+                                tracing::info!("US/CA tier 2 subscription, allocating 200 monthly credits");
                             }
-                        } else if sub_info.tier == "tier 2" {
-                            // legacy sub
-                            messages = 120.00 - (days_until_billing * amount_of_digests) as f32;
-                            println!("with messages: {}", messages);
-                        } else {
-                            println!("User subscribed to tier 1");
-                            messages = 40.00;
+                            // All other regions get 0 monthly credits (pay-per-use + 10€ first-time bonus)
+                            else {
+                                messages = 0.0;
+                                tracing::info!("Non-US/CA tier 2 subscription, allocating 0 monthly credits (pay-per-use model)");
+                            }
+                        }
+                        // Fallback (should not happen with migration, but keeping for safety)
+                        else {
+                            messages = 0.0;
+                            tracing::warn!("Unknown subscription tier: {}, defaulting to 0 credits", sub_info.tier);
                         }
                         if let Err(e) = state.user_repository.update_sub_credits(user.id, messages) {
                             tracing::error!("Failed to update subscription credits: {}", e);
@@ -944,49 +829,29 @@ pub async fn stripe_webhook(
                             Json(json!({"error": "Failed to check existing subscriptions"})),
                         )
                     })?;
-                    // Get the tier of the subscription being deleted
-                    let deleted_tier = subscription.items.data.first()
-                        .and_then(|item| item.price.as_ref())
-                        .map(|price| extract_subscription_info(&price.id).tier);
-                    // Only update subscription info if the deleted subscription's tier matches the current tier
-                    let current_tier = state.user_repository.get_subscription_tier(user.id)
-                        .map_err(|e| {
-                            tracing::error!("Failed to get current subscription tier: {}", e);
-                            (
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                Json(json!({"error": "Failed to get current subscription tier"})),
-                            )
-                        })?;
-                    if deleted_tier == current_tier.as_deref() {
-                        if active_subscriptions.data.is_empty() {
-                            // No active subscriptions left, clear subscription tier and country
-                            tracing::info!("No active subscriptions remaining, clearing subscription info");
-                            if let Err(e) = state.user_repository.set_subscription_tier(user.id, None) {
-                                tracing::error!("Failed to clear subscription tier: {}", e);
-                            }
-                            if let Err(e) = state.user_core.update_sub_country(user.id, None) {
-                                tracing::error!("Failed to clear subscription country: {}", e);
-                            }
-                        } else {
-                            // Find the highest tier among remaining subscriptions
-                            let highest_tier = active_subscriptions.data.iter()
-                                .filter_map(|sub| {
-                                    sub.items.data.first()
-                                        .and_then(|item| item.price.as_ref())
-                                        .map(|price| extract_subscription_info(&price.id))
-                                })
-                                .max_by(|a, b| {
-                                    // Compare tiers (tier 2 > tier 1.5 > tier 1)
-                                    match (a.tier, b.tier) {
-                                        ("tier 2", _) => std::cmp::Ordering::Greater,
-                                        (_, "tier 2") => std::cmp::Ordering::Less,
-                                        ("tier 1.5", "tier 1") => std::cmp::Ordering::Greater,
-                                        ("tier 1", "tier 1.5") => std::cmp::Ordering::Less,
-                                        _ => std::cmp::Ordering::Equal,
-                                    }
-                                });
-                            if let Some(tier_info) = highest_tier {
-                                tracing::info!("Updating subscription tier to {} based on remaining subscriptions", tier_info.tier);
+                    // Simplified deletion logic - just check if any active subscriptions remain
+                    if active_subscriptions.data.is_empty() {
+                        // No active subscriptions left, clear subscription tier and country
+                        tracing::info!("No active subscriptions remaining, clearing subscription info");
+                        if let Err(e) = state.user_repository.set_subscription_tier(user.id, None) {
+                            tracing::error!("Failed to clear subscription tier: {}", e);
+                        }
+                        if let Err(e) = state.user_core.update_sub_country(user.id, None) {
+                            tracing::error!("Failed to clear subscription country: {}", e);
+                        }
+                        // Clear monthly credits
+                        if let Err(e) = state.user_repository.update_sub_credits(user.id, 0.0) {
+                            tracing::error!("Failed to clear subscription credits: {}", e);
+                        }
+                    } else {
+                        // User still has active subscriptions - update to the first one found
+                        // (since all tiers are either tier 2 or tier 3 now, this is simple)
+                        if let Some(remaining_sub) = active_subscriptions.data.first() {
+                            if let Some(tier_info) = remaining_sub.items.data.first()
+                                .and_then(|item| item.price.as_ref())
+                                .map(|price| extract_subscription_info(&price.id))
+                            {
+                                tracing::info!("Updating subscription tier to {} based on remaining subscription", tier_info.tier);
                                 if let Err(e) = state.user_repository.set_subscription_tier(user.id, Some(tier_info.tier)) {
                                     tracing::error!("Failed to update subscription tier: {}", e);
                                 }
@@ -995,8 +860,6 @@ pub async fn stripe_webhook(
                                 }
                             }
                         }
-                    } else {
-                        tracing::info!("Deleted subscription tier ({:?}) doesn't match current tier ({:?}), skipping update", deleted_tier, current_tier);
                     }
                 }
             }
