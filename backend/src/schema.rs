@@ -36,6 +36,20 @@ diesel::table! {
 }
 
 diesel::table! {
+    country_availability (id) {
+        id -> Integer,
+        country_code -> Text,
+        has_local_numbers -> Bool,
+        outbound_sms_price -> Nullable<Float>,
+        inbound_sms_price -> Nullable<Float>,
+        outbound_voice_price_per_min -> Nullable<Float>,
+        inbound_voice_price_per_min -> Nullable<Float>,
+        last_checked -> Integer,
+        created_at -> Integer,
+    }
+}
+
+diesel::table! {
     critical_categories (id) {
         id -> Nullable<Integer>,
         user_id -> Integer,
@@ -156,6 +170,9 @@ diesel::table! {
         created_at -> Nullable<Integer>,
         status -> Nullable<Text>,
         tinfoil_key -> Nullable<Text>,
+        messaging_service_sid -> Nullable<Text>,
+        subaccount_type -> Text,
+        country_code -> Nullable<Text>,
     }
 }
 
@@ -245,6 +262,8 @@ diesel::table! {
         action_on_critical_message -> Nullable<Text>,
         magic_login_token -> Nullable<Text>,
         magic_login_token_expiration_timestamp -> Nullable<Integer>,
+        monthly_message_count -> Integer,
+        outbound_message_pricing -> Nullable<Float>,
     }
 }
 
@@ -308,6 +327,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     bridges,
     calendar_notifications,
     conversations,
+    country_availability,
     critical_categories,
     email_judgments,
     google_calendar,

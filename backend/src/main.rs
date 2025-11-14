@@ -68,6 +68,9 @@ mod utils {
     pub mod imap_utils;
     pub mod qr_utils;
     pub mod self_host_twilio;
+    pub mod us_number_pool;
+    pub mod subaccount_lifecycle;
+    pub mod notification_utils;
 }
 mod proactive {
     pub mod utils;
@@ -89,6 +92,7 @@ mod api {
     pub mod elevenlabs;
     pub mod elevenlabs_webhook;
     pub mod shazam_call;
+    pub mod twilio_availability;
 }
 mod error;
 mod models {
@@ -301,7 +305,8 @@ async fn main() {
         .route("/api/password-reset/verify", post(auth_handlers::verify_password_reset))
         .route("/api/phone-verify/request", post(auth_handlers::request_phone_verify))
         .route("/api/phone-verify/verify", post(auth_handlers::verify_phone_verify))
-        .route("/api/country-info", post(twilio_handlers::get_country_info));
+        .route("/api/country-info", post(twilio_handlers::get_country_info))
+        .route("/api/tier3/check-availability", get(self_host_handlers::check_tier3_availability));
     // Admin routes that need admin authentication
     let admin_routes = Router::new()
         .route("/testing", post(auth_handlers::testing_handler))
@@ -426,6 +431,7 @@ async fn main() {
         .route_layer(middleware::from_fn(handlers::auth_middleware::require_auth));
     let self_hosted_public_router = Router::new()
         .route("/verify-token", post(self_host_handlers::verify_token))
+        .route("/renew-tinfoil-key", post(self_host_handlers::renew_tinfoil_key))
         .layer(middleware::from_fn_with_state(state.clone(), handlers::auth_middleware::validate_tier3_self_hosted));
     let app = Router::new()
         .merge(public_routes)

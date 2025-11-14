@@ -1213,5 +1213,110 @@ impl UserCore {
             _ => Ok((None, None, None, None, None, None))
         }
     }
+
+    // Find subaccount by user_id
+    pub fn find_subaccount_by_user_id(&self, user_id: i32) -> Result<Option<Subaccount>, DieselError> {
+        use crate::schema::subaccounts;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        subaccounts::table
+            .filter(subaccounts::user_id.eq(user_id.to_string()))
+            .filter(subaccounts::status.eq(Some("active".to_string())))
+            .first::<Subaccount>(&mut conn)
+            .optional()
+    }
+
+    // Count free US subaccounts in the pool
+    pub fn count_free_us_subaccounts(&self) -> Result<i64, DieselError> {
+        use crate::schema::subaccounts;
+        use diesel::dsl::count;
+
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        subaccounts::table
+            .filter(subaccounts::user_id.eq("-1"))
+            .filter(subaccounts::status.eq(Some("available".to_string())))
+            .filter(subaccounts::country.eq(Some("US".to_string())))
+            .select(count(subaccounts::id))
+            .first::<i64>(&mut conn)
+    }
+
+    // Get oldest free US subaccounts for cleanup
+    pub fn get_oldest_free_us_subaccounts(&self, limit: i64) -> Result<Vec<Subaccount>, DieselError> {
+        use crate::schema::subaccounts;
+
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        subaccounts::table
+            .filter(subaccounts::user_id.eq("-1"))
+            .filter(subaccounts::status.eq(Some("available".to_string())))
+            .filter(subaccounts::country.eq(Some("US".to_string())))
+            .order(subaccounts::created_at.asc())
+            .limit(limit)
+            .load::<Subaccount>(&mut conn)
+    }
+
+    // Delete subaccount
+    pub fn delete_subaccount(&self, subaccount_id: i32) -> Result<(), DieselError> {
+        use crate::schema::subaccounts;
+
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        diesel::delete(subaccounts::table.filter(subaccounts::id.eq(subaccount_id)))
+            .execute(&mut conn)?;
+
+        Ok(())
+    }
+
+    // Update subaccount's tinfoil key
+    pub fn update_subaccount_tinfoil_key(&self, subaccount_id: i32, tinfoil_key: &str) -> Result<(), DieselError> {
+        use crate::schema::subaccounts;
+
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        diesel::update(subaccounts::table.filter(subaccounts::id.eq(subaccount_id)))
+            .set(subaccounts::tinfoil_key.eq(Some(tinfoil_key.to_string())))
+            .execute(&mut conn)?;
+
+        Ok(())
+    }
+
+    // Increment monthly message count for US/CA tier 3 monitoring
+    pub fn increment_monthly_message_count(&self, user_id: i32) -> Result<(), DieselError> {
+        use crate::schema::user_settings;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
+            .set(user_settings::monthly_message_count.eq(
+                user_settings::monthly_message_count + 1
+            ))
+            .execute(&mut conn)?;
+
+        Ok(())
+    }
+
+    // Reset monthly message count (called on billing cycle)
+    pub fn reset_monthly_message_count(&self, user_id: i32) -> Result<(), DieselError> {
+        use crate::schema::user_settings;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
+            .set(user_settings::monthly_message_count.eq(0))
+            .execute(&mut conn)?;
+
+        Ok(())
+    }
+
+    // Update outbound message pricing for a user
+    pub fn update_outbound_message_pricing(&self, user_id: i32, pricing: f32) -> Result<(), DieselError> {
+        use crate::schema::user_settings;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
+            .set(user_settings::outbound_message_pricing.eq(Some(pricing)))
+            .execute(&mut conn)?;
+
+        Ok(())
+    }
 }
 

@@ -18,6 +18,7 @@ use crate::schema::message_history;
 use crate::schema::user_info;
 use crate::schema::uber;
 use crate::schema::subaccounts;
+use crate::schema::country_availability;
 
 
 
@@ -460,6 +461,8 @@ pub struct UserSettings {
     pub action_on_critical_message: Option<String>, // "ask_sender", "ask_sender_exclude_family", "notify_family", or None and "notify_all" are the same
     pub magic_login_token: Option<String>, // self hosted instance magic link token
     pub magic_login_token_expiration_timestamp: Option<i32>, // self hosted instance magic token expiration timestamp
+    pub monthly_message_count: i32, // for US/CA tier 3 monitoring (threshold at 1000 messages/month)
+    pub outbound_message_pricing: Option<f32>, // cached Twilio outbound SMS price for user's country
 }
 
 #[derive(Insertable)]
@@ -492,6 +495,9 @@ pub struct Subaccount {
     pub created_at: Option<i32>,
     pub status: Option<String>,
     pub tinfoil_key: Option<String>,
+    pub messaging_service_sid: Option<String>,
+    pub subaccount_type: String, // "us_ca", "full_service", "notification_only"
+    pub country_code: Option<String>, // ISO country code (US, CA, FI, IL, etc.)
 }
 
 #[derive(Insertable)]
@@ -506,6 +512,9 @@ pub struct NewSubaccount {
     pub created_at: Option<i32>,
     pub status: Option<String>,
     pub tinfoil_key: Option<String>,
+    pub messaging_service_sid: Option<String>,
+    pub subaccount_type: String, // "us_ca", "full_service", "notification_only"
+    pub country_code: Option<String>, // ISO country code
 }
 
 
@@ -534,5 +543,33 @@ pub struct NewMessageHistory {
     pub tool_call_id: Option<String>,
     pub created_at: i32,
     pub conversation_id: String,
-    pub tool_calls_json: Option<String>, 
+    pub tool_calls_json: Option<String>,
+}
+
+#[derive(Queryable, Selectable, Debug, Clone)]
+#[diesel(table_name = country_availability)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct CountryAvailability {
+    pub id: i32,
+    pub country_code: String,
+    pub has_local_numbers: bool,
+    pub outbound_sms_price: Option<f32>,
+    pub inbound_sms_price: Option<f32>,
+    pub outbound_voice_price_per_min: Option<f32>,
+    pub inbound_voice_price_per_min: Option<f32>,
+    pub last_checked: i32,
+    pub created_at: i32,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = country_availability)]
+pub struct NewCountryAvailability {
+    pub country_code: String,
+    pub has_local_numbers: bool,
+    pub outbound_sms_price: Option<f32>,
+    pub inbound_sms_price: Option<f32>,
+    pub outbound_voice_price_per_min: Option<f32>,
+    pub inbound_voice_price_per_min: Option<f32>,
+    pub last_checked: i32,
+    pub created_at: i32,
 }

@@ -698,3 +698,135 @@ pub async fn create_temp_tinfoil_api_key(
     tracing::info!("Created temporary Tinfoil API key for user {}: {}", user_id, new_key);
     Ok(new_key)
 }
+
+// Handler for checking tier 3 country capability
+#[derive(Deserialize)]
+pub struct CheckTier3AvailabilityQuery {
+    pub country: String,
+}
+
+pub async fn check_tier3_availability(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<CheckTier3AvailabilityQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    use crate::api::twilio_availability;
+
+    match twilio_availability::get_country_capability(&state, &query.country).await {
+        Ok(capability) => {
+            // All tier 3 plans are $40/month base
+            let base_price = 40.0;
+
+            // US/CA get unlimited (no credits needed), others get 0 credits (must buy separately)
+            let credits_included = if capability.plan_type == "us_ca" {
+                -1.0  // -1 indicates unlimited
+            } else {
+                0.0  // Must buy credits separately
+            };
+
+            Ok(Json(json!({
+                "available": capability.available,
+                "plan_type": capability.plan_type,
+                "can_receive_sms": capability.can_receive_sms,
+                "base_price": base_price,
+                "credits_included": credits_included,
+                "message_cost_eur": capability.outbound_sms_price,
+                "outbound_sms_price": capability.outbound_sms_price,
+                "inbound_sms_price": capability.inbound_sms_price,
+                "outbound_voice_price_per_min": capability.outbound_voice_price_per_min,
+                "inbound_voice_price_per_min": capability.inbound_voice_price_per_min,
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({"error": e})),
+        )),
+    }
+}
+
+#[derive(Deserialize)]
+pub struct RenewTinfoilKeyRequest {
+    pub user_id: i32,
+    pub tokens_consumed: i64,
+}
+
+/// Endpoint for self-hosted instances to request Tinfoil API key renewal
+/// This is called when the self-hosted instance detects it's running low on tokens
+///
+/// POST /api/self-hosted/renew-tinfoil-key
+/// Body: { "user_id": 123, "tokens_consumed": 50000 }
+///
+/// Returns: { "new_api_key": "tk_...", "expiry": 1234567890 }
+pub async fn renew_tinfoil_key(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<RenewTinfoilKeyRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let user_id = request.user_id;
+    let tokens_consumed = request.tokens_consumed;
+
+    tracing::info!("Tinfoil API key renewal requested for user {} (tokens consumed: {})", user_id, tokens_consumed);
+
+    // Verify user exists and has tier 3 subscription
+    let user = state.user_core.find_by_id(user_id)
+        .map_err(|e| {
+            tracing::error!("Database error finding user {}: {}", user_id, e);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "Database error"})))
+        })?
+        .ok_or_else(|| {
+            tracing::warn!("User {} not found for Tinfoil renewal", user_id);
+            (StatusCode::NOT_FOUND, Json(json!({"error": "User not found"})))
+        })?;
+
+    // Check if user has tier 3 subscription
+    if user.sub_tier.as_deref() != Some("tier 3") {
+        tracing::warn!("User {} attempted Tinfoil renewal but is tier {:?}", user_id, user.sub_tier);
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(json!({"error": "Tinfoil API key renewal is only available for tier 3 (self-hosted) users"}))
+        ));
+    }
+
+    // Get next billing date for expiry calculation
+    let next_billing = user.next_billing_date_timestamp
+        .ok_or_else(|| {
+            tracing::error!("User {} has no next_billing_date_timestamp set", user_id);
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": "No billing date set"})))
+        })?;
+
+    // Calculate days until renewal
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i32;
+    let days_until_renewal = ((next_billing - now) / 86400).max(0);
+
+    // Generate new Tinfoil API key using subaccount lifecycle utility
+    let new_key = crate::utils::subaccount_lifecycle::regenerate_tinfoil_key(
+        &state,
+        user_id,
+        next_billing as i64,
+    ).await.map_err(|e| {
+        tracing::error!("Failed to regenerate Tinfoil key for user {}: {}", user_id, e);
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"error": format!("Failed to generate new key: {}", e)})))
+    })?;
+
+    // Send email notification to admin (spawn as background task to not block response)
+    let state_clone = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = crate::utils::notification_utils::send_tinfoil_renewal_notification(
+            &state_clone,
+            user_id,
+            days_until_renewal,
+            tokens_consumed,
+        ).await {
+            tracing::error!("Failed to send Tinfoil renewal notification email: {}", e);
+        }
+    });
+
+    tracing::info!("Successfully renewed Tinfoil API key for user {} (expires: {})", user_id, next_billing);
+
+    Ok(Json(json!({
+        "new_api_key": new_key,
+        "expiry": next_billing,
+        "message": "Tinfoil API key renewed successfully"
+    })))
+}
