@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  tesla-http-proxy:
+    image: golang:1.23-alpine
+    container_name: tesla-http-proxy
+    working_dir: /app
+    volumes:
+      - ./tesla_private_key.pem:/keys/private.pem:ro
+      - ./tesla-proxy-tls:/tls
+    environment:
+      - PORT=4443
+      - TESLA_HTTP_PROXY_TIMEOUT=90s
+    ports:
+      - "4443:4443"
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache git openssl
+        if [ ! -f /tls/key.pem ]; then
+          mkdir -p /tls
+          openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:secp521r1 -pkeyopt ec_param_enc:named_curve -subj '/CN=localhost' -keyout /tls/key.pem -out /tls/cert.pem -sha256 -days 3650 -addext 'extendedKeyUsage = serverAuth' -addext 'keyUsage = digitalSignature, keyCertSign, keyAgreement'
+        fi
+        rm -rf /tmp/vehicle-command
+        git clone https://github.com/teslamotors/vehicle-command.git /tmp/vehicle-command
+        cd /tmp/vehicle-command/cmd/tesla-http-proxy
+        go build -o /app/tesla-http-proxy
+        /app/tesla-http-proxy -tls-key /tls/key.pem -cert /tls/cert.pem -key-file /keys/private.pem -port 4443 -host 0.0.0.0 -timeout 90s -verbose
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-check-certificate", "-q", "-O", "-", "https://localhost:4443/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3

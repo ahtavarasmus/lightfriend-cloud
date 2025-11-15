@@ -11,3 +11,9 @@ backend/target/
 .env
 backend/src/api/payloads.md
 second_terminal
+
+# Tesla integration sensitive files
+backend/tesla_private_key.pem
+backend/tesla_public_key.pem
+backend/tesla-proxy-tls/key.pem
+backend/tesla-proxy-tls/cert.pem
