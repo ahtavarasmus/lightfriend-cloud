@@ -56,6 +56,7 @@ mod handlers {
     pub mod self_host_handlers;
     pub mod uber_auth;
     pub mod uber;
+    pub mod tesla_auth;
     pub mod google_maps;
 }
 mod utils {
@@ -71,6 +72,7 @@ mod utils {
     pub mod us_number_pool;
     pub mod subaccount_lifecycle;
     pub mod notification_utils;
+    pub mod tesla_keys;
 }
 mod proactive {
     pub mod utils;
@@ -83,6 +85,7 @@ mod tool_call_utils {
     pub mod internet;
     pub mod management;
     pub mod bridge;
+    pub mod tesla;
 }
 mod api {
     pub mod vapi_endpoints;
@@ -93,6 +96,7 @@ mod api {
     pub mod elevenlabs_webhook;
     pub mod shazam_call;
     pub mod twilio_availability;
+    pub mod tesla;
 }
 mod error;
 mod models {
@@ -117,6 +121,7 @@ use handlers::{
     whatsapp_auth, whatsapp_handlers, telegram_auth, telegram_handlers,
     signal_auth, signal_handlers, filter_handlers, twilio_handlers, uber_auth,
     messenger_auth, messenger_handlers, instagram_auth, instagram_handlers,
+    tesla_auth,
 };
 use api::{twilio_sms, elevenlabs, elevenlabs_webhook, shazam_call};
 type DbPool = r2d2::Pool<ConnectionManager<SqliteConnection>>;
@@ -125,6 +130,7 @@ async fn health_check() -> &'static str {
 }
 type GoogleOAuthClient = BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
 type UberOAuthClient = BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
+type TeslaOAuthClient = BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
 pub struct AppState {
     db_pool: DbPool,
     user_core: Arc<UserCore>,
@@ -134,6 +140,7 @@ pub struct AppState {
     google_calendar_oauth_client: GoogleOAuthClient,
     google_tasks_oauth_client: GoogleOAuthClient,
     uber_oauth_client: GoogleOAuthClient,
+    tesla_oauth_client: TeslaOAuthClient,
     session_store: MemoryStore,
     login_limiter: DashMap<String, RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
     password_reset_limiter: DashMap<String, RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
@@ -141,6 +148,7 @@ pub struct AppState {
     matrix_sync_tasks: Arc<Mutex<HashMap<i32, tokio::task::JoinHandle<()>>>>,
     matrix_invitation_tasks: Arc<Mutex<HashMap<i32, tokio::task::JoinHandle<()>>>>,
     matrix_clients: Arc<Mutex<HashMap<i32, Arc<matrix_sdk::Client>>>>,
+    tesla_monitoring_tasks: Arc<DashMap<i32, tokio::task::JoinHandle<()>>>,
     password_reset_otps: DashMap<String, (String, u64)>, // (email, (otp, expiration))
     phone_verify_limiter: DashMap<String, RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
     phone_verify_verify_limiter: DashMap<String, RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
@@ -201,6 +209,7 @@ async fn main() {
     let user_core= Arc::new(UserCore::new(pool.clone()));
     let user_repository = Arc::new(UserRepository::new(pool.clone()));
     let server_url_oauth = std::env::var("SERVER_URL_OAUTH").unwrap_or_else(|_| "http://localhost:3000".to_string());
+    let server_url = std::env::var("SERVER_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
     let client_id = std::env::var("GOOGLE_CALENDAR_CLIENT_ID").unwrap_or_else(|_| "default-client-id-for-testing".to_string());
     let client_secret = std::env::var("GOOGLE_CALENDAR_CLIENT_SECRET").unwrap_or_else(|_| "default-secret-for-testing".to_string());
     let google_calendar_oauth_client = BasicClient::new(ClientId::new(client_id.clone()))
@@ -226,6 +235,16 @@ async fn main() {
         .set_auth_uri(AuthUrl::new("https://accounts.google.com/o/oauth2/v2/auth".to_string()).expect("Invalid auth URL"))
         .set_token_uri(TokenUrl::new("https://oauth2.googleapis.com/token".to_string()).expect("Invalid token URL"))
         .set_redirect_uri(RedirectUrl::new(format!("{}/api/auth/google/tasks/callback", server_url_oauth)).expect("Invalid redirect URL"));
+
+    // Tesla OAuth client
+    let tesla_client_id = std::env::var("TESLA_CLIENT_ID").unwrap_or_else(|_| "default-tesla-client-id-for-testing".to_string());
+    let tesla_client_secret = std::env::var("TESLA_CLIENT_SECRET").unwrap_or_else(|_| "default-tesla-secret-for-testing".to_string());
+    let tesla_oauth_client = BasicClient::new(ClientId::new(tesla_client_id))
+        .set_client_secret(ClientSecret::new(tesla_client_secret))
+        .set_auth_uri(AuthUrl::new("https://auth.tesla.com/oauth2/v3/authorize".to_string()).expect("Invalid auth URL"))
+        .set_token_uri(TokenUrl::new("https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token".to_string()).expect("Invalid token URL"))
+        .set_redirect_uri(RedirectUrl::new(format!("{}/api/auth/tesla/callback", server_url)).expect("Invalid redirect URL"));
+
     let matrix_sync_tasks = Arc::new(Mutex::new(HashMap::new()));
     let matrix_invitation_tasks = Arc::new(Mutex::new(HashMap::new()));
     let matrix_clients = Arc::new(Mutex::new(HashMap::new()));
@@ -238,6 +257,7 @@ async fn main() {
         google_calendar_oauth_client,
         google_tasks_oauth_client,
         uber_oauth_client,
+        tesla_oauth_client,
         session_store: session_store.clone(),
         login_limiter: DashMap::new(),
         password_reset_limiter: DashMap::new(),
@@ -246,6 +266,7 @@ async fn main() {
         matrix_sync_tasks,
         matrix_invitation_tasks,
         matrix_clients,
+        tesla_monitoring_tasks: Arc::new(DashMap::new()),
         phone_verify_limiter: DashMap::new(),
         phone_verify_verify_limiter: DashMap::new(),
         password_reset_otps: DashMap::new(),
@@ -294,7 +315,8 @@ async fn main() {
         .route("/api/stripe/webhook", post(stripe_handlers::stripe_webhook))
         .route("/api/auth/google/calendar/callback", get(google_calendar_auth::google_callback))
         .route("/api/auth/google/tasks/callback", get(google_tasks_auth::google_tasks_callback))
-        .route("/api/auth/uber/callback", get(uber_auth::uber_callback));
+        .route("/api/auth/uber/callback", get(uber_auth::uber_callback))
+        .route("/api/auth/tesla/callback", get(tesla_auth::tesla_callback));
     // Public routes that don't need authentication. there's ratelimiting though
     let public_routes = Router::new()
         .route("/api/health", get(health_check))
@@ -365,6 +387,15 @@ async fn main() {
         .route("/api/auth/uber/connection", delete(uber_auth::uber_disconnect))
         .route("/api/auth/uber/status", get(uber_auth::uber_status))
         //.route("api/uber", get(uber::test_status_change))
+        .route("/api/auth/tesla/login", get(tesla_auth::tesla_login))
+        .route("/api/auth/tesla/connection", delete(tesla_auth::tesla_disconnect))
+        .route("/api/auth/tesla/status", get(tesla_auth::tesla_status))
+        .route("/api/auth/tesla/virtual-key", get(tesla_auth::get_virtual_key_link))
+        .route("/api/tesla/command", post(tesla_auth::tesla_command))
+        .route("/api/tesla/battery-status", get(tesla_auth::tesla_battery_status))
+        .route("/api/tesla/vehicles", get(tesla_auth::tesla_list_vehicles))
+        .route("/api/tesla/select-vehicle", post(tesla_auth::tesla_select_vehicle))
+        .route("/api/tesla/mark-paired", post(tesla_auth::tesla_mark_paired))
         .route("/api/auth/imap/login", post(imap_auth::imap_login))
         .route("/api/auth/imap/status", get(imap_auth::imap_status))
         .route("/api/auth/imap/disconnect", delete(imap_auth::delete_imap_connection))
@@ -441,6 +472,7 @@ async fn main() {
         .route("/api/twiml", get(shazam_call::twiml_handler).post(shazam_call::twiml_handler))
         .route("/api/stream", get(shazam_call::stream_handler))
         .route("/api/listen/{call_sid}", get(shazam_call::listen_handler))
+        .route("/.well-known/appspecific/com.tesla.3p.public-key.pem", get(tesla_auth::serve_tesla_public_key))
         .merge(user_twilio_routes) // More specific routes first
         .merge(textbee_routes)
         .merge(twilio_routes) // More general routes last
@@ -492,6 +524,36 @@ async fn main() {
         _ => 3000,
     };
     validate_env();
+
+    // Initialize Tesla keys and register in all regions
+    tracing::info!("Initializing Tesla integration...");
+    match utils::tesla_keys::generate_or_load_keys() {
+        Ok(_) => {
+            tracing::info!("Tesla EC key pair ready");
+            tracing::info!("Public key will be served at /.well-known/appspecific/com.tesla.3p.public-key.pem");
+
+            // Register app in all Tesla regions (EU, NA, AP) for proxy to work globally
+            tracing::info!("Registering app in all Tesla Fleet API regions...");
+            let regions = vec![
+                ("EU", "https://fleet-api.prd.eu.vn.cloud.tesla.com"),
+                ("NA", "https://fleet-api.prd.na.vn.cloud.tesla.com"),
+                ("AP", "https://fleet-api.prd.ap.vn.cloud.tesla.com"),
+            ];
+
+            for (name, url) in regions {
+                let client = api::tesla::TeslaClient::new_with_region(url);
+                match client.register_in_region().await {
+                    Ok(_) => tracing::info!("✓ Registered in {} region", name),
+                    Err(e) => tracing::warn!("Failed to register in {} region: {} (this may be ok if already registered)", name, e),
+                }
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to initialize Tesla keys: {}", e);
+            tracing::warn!("Tesla integration will not be available");
+        }
+    }
+
     tracing::info!("Starting server on port {}", port);
     let listener = TcpListener::bind(format!("0.0.0.0:{}", port)).await.unwrap();
     axum::serve(listener, app.into_make_service()).await.unwrap();

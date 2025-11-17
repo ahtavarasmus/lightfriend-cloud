@@ -58,6 +58,7 @@ mod connections {
     pub mod uber;
     pub mod messenger;
     pub mod instagram;
+    pub mod tesla;
 }
 mod auth {
     pub mod connect;

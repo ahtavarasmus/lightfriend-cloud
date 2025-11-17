@@ -52,8 +52,6 @@ pub struct CheckoutButtonProps {
     pub user_email: String,
     pub subscription_type: String,
     pub selected_country: String,
-    #[prop_or_default]
-    pub selected_addons: Vec<String>,
 }
 #[function_component(CheckoutButton)]
 pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
@@ -61,24 +59,21 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
     let user_email = props.user_email.clone();
     let subscription_type = props.subscription_type.clone();
     let selected_country = props.selected_country.clone();
-    let selected_addons = props.selected_addons.clone();
 
-    // Check if subscriptions are blocked (hardcoded for now)
-    let subscriptions_blocked = true;
+    // Check if subscriptions are blocked
+    let subscriptions_blocked = false;
 
     let onclick = {
         let user_id = user_id.clone();
         let subscription_type = subscription_type.clone();
         let selected_country = selected_country.clone();
-        let selected_addons = selected_addons.clone();
-  
+
         Callback::from(move |e: MouseEvent| {
             e.prevent_default();
             let user_id = user_id.clone();
             let subscription_type = subscription_type.clone();
-            let selected_addons = selected_addons.clone();
             let selected_country = selected_country.clone();
-      
+
             if subscription_type != "basic" && subscription_type != "oracle" && selected_country == "Other" {
                 if let Some(window) = web_sys::window() {
                     if !window.confirm_with_message(
@@ -90,7 +85,7 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
                     }
                 }
             }
-      
+
             wasm_bindgen_futures::spawn_local(async move {
                 if let Some(token) = window()
                     .and_then(|w| w.local_storage().ok())
@@ -105,7 +100,6 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
                             "guaranteed" => "Guaranteed",
                             _ => "Hosted" // Default to Hosted if unknown
                         },
-                        "addons": selected_addons,
                         "trial_days": if selected_country == "US" || selected_country == "CA" { 7 } else { 0 },
                     });
                     let response = Request::post(&endpoint)
@@ -232,74 +226,6 @@ pub struct PricingCardProps {
 }
 #[function_component(PricingCard)]
 pub fn pricing_card(props: &PricingCardProps) -> Html {
-    let selected_addons = use_state(|| vec![]);
-    let addon_total = use_state(|| 0.0);
-    let is_european = ["FI", "NL", "UK"].contains(&props.selected_country.as_str());
-    let is_giftcard_region = ["US", "CA", "AU"].contains(&props.selected_country.as_str());
-    let addon_currency = if is_giftcard_region || props.selected_country == "US" || props.selected_country == "CA" { "$" } else { "€" };
-    let available_physical = is_european || is_giftcard_region;
-    let dumbphone_id = if is_european { "dumbphone_ship".to_string() } else { "dumbphone_gift".to_string() };
-    let dumbphone_name = if is_european { "Dumbphone (Shipped)".to_string() } else { "Amazon Gift Card for Dumbphone".to_string() };
-    let dumbphone_price = if is_european { 50.0 } else { 30.0 };
-    let dumbphone_description = if is_european {
-        "Get a dumbphone shipped to you.".to_string()
-    } else {
-        "Get $40 Amazon gift card for a dumbphone. ".to_string()
-    };
-    let ubikey_id = if is_european { "ubikey_ship".to_string() } else { "ubikey_gift".to_string() };
-    let ubikey_name = if is_european { "UbiKey Security Key (Shipped)".to_string() } else { "Amazon Gift Card for YubiKey".to_string() };
-    let ubikey_price = if is_european { 90.0 } else { 45.0 };
-    let ubikey_description = if is_european {
-        "Add a UbiKey for enhanced 2FA security (shipped to you).".to_string()
-    } else {
-        "Get $55 Amazon gift card and link to buy YubiKey 5C NFC: https://www.amazon.com/Yubico-Two-factor-authentication-security-certified/dp/B08DHL1YDL".to_string()
-    };
-    let addons = vec![
-        Addon {
-            id: dumbphone_id,
-            name: dumbphone_name,
-            price: dumbphone_price,
-            description: dumbphone_description,
-            currency: addon_currency.to_string(),
-            available: available_physical,
-        },
-        Addon {
-            id: ubikey_id,
-            name: ubikey_name,
-            price: ubikey_price,
-            description: ubikey_description,
-            currency: addon_currency.to_string(),
-            available: available_physical,
-        },
-        Addon {
-            id: "cold_turkey".to_string(),
-            name: "20% Off Cold Turkey Blocker".to_string(),
-            price: 0.0,
-            description: "Get 20% discount on Cold Turkey Blocker (code provided after signup).".to_string(),
-            currency: addon_currency.to_string(),
-            available: true, // Always available, as it's digital
-        },
-    ];
-    let on_addon_change = {
-        let selected_addons = selected_addons.clone();
-        let addon_total = addon_total.clone();
-        let addons = addons.clone();
-        Callback::from(move |e: Event| {
-            let input: web_sys::HtmlInputElement = e.target().unwrap().dyn_into().unwrap();
-            let addon_id = input.id();
-            let mut new_addons = (*selected_addons).clone();
-            if input.checked() {
-                new_addons.push(addon_id.clone());
-            } else {
-                new_addons.retain(|a| a != &addon_id);
-            }
-            selected_addons.set(new_addons.clone());
-            let new_total: f64 = new_addons.iter().filter_map(|id| {
-                addons.iter().find(|a| a.id == *id).map(|a| a.price)
-            }).sum();
-            addon_total.set(new_total);
-        })
-    };
     let price_text = if props.subscription_type == "hosted" {
         format!("{}{:.2}", props.currency, props.price / 30.00) // Normal pricing for other plans
     } else {
@@ -330,21 +256,17 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
                     user_email={props.user_email.clone()}
                     subscription_type={props.subscription_type.clone()}
                     selected_country={props.selected_country.clone()}
-                    selected_addons={(*selected_addons).clone()}
                 />
             }
         }
     } else {
         let subscription_type = props.subscription_type.clone();
-        let selected_addons = (*selected_addons).clone();
         let onclick = Callback::from(move |e: MouseEvent| {
             e.prevent_default();
             let subscription_type = subscription_type.clone();
-            let selected_addons = selected_addons.clone();
             if let Some(window) = web_sys::window() {
                 if let Ok(Some(storage)) = window.local_storage() {
                     let _ = storage.set_item("selected_plan", &subscription_type);
-                    let _ = storage.set_item("selected_addons", &serde_json::to_string(&selected_addons).unwrap_or_default());
                     let _ = window.location().set_href("/register");
                 }
             }
@@ -756,22 +678,6 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
                             }
                         } else { html! {} }}
                     </ul>
-                </div>
-                <div class="addons-section">
-                    <h4>{"Optional Addons (One-Time at Signup)"}</h4>
-                    <ul class="addon-list">
-                        { for addons.iter().map(|addon| {
-                            let on_addon_change = on_addon_change.clone();
-                            html! {
-                                <li>
-                                    <input type="checkbox" id={addon.id.clone()} onchange={on_addon_change} disabled={!addon.available} />
-                                    <label for={addon.id.clone()}>{addon.name.clone()}{ if addon.price > 0.0 { format!(" - {}{:.2}", addon.currency, addon.price) } else { "".to_string() } }</label>
-                                    <p class="addon-desc">{addon.description.clone()}</p>
-                                </li>
-                            }
-                        }) }
-                    </ul>
-                    <p class="addon-total">{"Addon Total: "}{format!("{}{:.2}", addon_currency, *addon_total)}</p>
                 </div>
                 {
                     if (props.subscription_type == "hosted" || props.subscription_type == "guaranteed") && props.selected_country == "Other" {
@@ -1466,13 +1372,6 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
                         html! {}
                     }
                 }
-            </div>
-
-            <div class="subscription-blocked-notice">
-                <h3>{"New Subscriptions Temporarily Unavailable"}</h3>
-                <p>{"We're currently not accepting new subscriptions as we prepare for improvements to our service."}</p>
-                <p>{"You'll be notified via email when subscriptions are available again."}</p>
-                <p style="margin-top: 1rem; font-size: 0.95rem;">{"Thank you for your understanding as we work to provide you with an even better experience!"}</p>
             </div>
 
             {

@@ -906,6 +906,209 @@ impl UserRepository {
         Ok(())
     }
 
+    // Tesla repository methods
+    pub fn has_active_tesla(&self, user_id: i32) -> Result<bool, DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        let connection = tesla::table
+            .filter(tesla::user_id.eq(user_id))
+            .filter(tesla::status.eq("active"))
+            .first::<crate::models::user_models::Tesla>(&mut conn)
+            .optional()?;
+        Ok(connection.is_some())
+    }
+
+    pub fn create_tesla_connection(
+        &self,
+        new_connection: crate::models::user_models::NewTesla,
+    ) -> Result<(), DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        let user_id = new_connection.user_id;
+
+        // Delete any existing connection for this user
+        diesel::delete(tesla::table)
+            .filter(tesla::user_id.eq(user_id))
+            .execute(&mut conn)?;
+
+        // Insert new connection
+        diesel::insert_into(tesla::table)
+            .values(&new_connection)
+            .execute(&mut conn)?;
+
+        Ok(())
+    }
+
+    pub fn get_tesla_tokens(&self, user_id: i32) -> Result<Option<(String, String)>, DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        let connection = tesla::table
+            .filter(tesla::user_id.eq(user_id))
+            .filter(tesla::status.eq("active"))
+            .first::<crate::models::user_models::Tesla>(&mut conn)
+            .optional()?;
+
+        if let Some(connection) = connection {
+            // Decrypt access token
+            let access_token = decrypt(&connection.encrypted_access_token)
+                .map_err(|e| {
+                    tracing::error!("Failed to decrypt Tesla access token: {:?}", e);
+                    DieselError::RollbackTransaction
+                })?;
+
+            // Decrypt refresh token
+            let refresh_token = decrypt(&connection.encrypted_refresh_token)
+                .map_err(|e| {
+                    tracing::error!("Failed to decrypt Tesla refresh token: {:?}", e);
+                    DieselError::RollbackTransaction
+                })?;
+
+            Ok(Some((access_token, refresh_token)))
+        } else {
+            tracing::info!("No active Tesla connection found for user {}", user_id);
+            Ok(None)
+        }
+    }
+
+    pub fn delete_tesla_connection(&self, user_id: i32) -> Result<(), DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        diesel::delete(tesla::table)
+            .filter(tesla::user_id.eq(user_id))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn get_tesla_token_info(&self, user_id: i32) -> Result<(String, String, i32, i32), DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        let connection = tesla::table
+            .filter(tesla::user_id.eq(user_id))
+            .filter(tesla::status.eq("active"))
+            .first::<crate::models::user_models::Tesla>(&mut conn)?;
+
+        // Return encrypted tokens - let the caller decrypt them if needed
+        Ok((connection.encrypted_access_token, connection.encrypted_refresh_token, connection.expires_in, connection.last_update))
+    }
+
+    pub fn update_tesla_access_token(
+        &self,
+        user_id: i32,
+        encrypted_access_token: String,
+        encrypted_refresh_token: String,
+        expires_in: i32,
+        last_update: i32,
+    ) -> Result<(), DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        diesel::update(tesla::table)
+            .filter(tesla::user_id.eq(user_id))
+            .filter(tesla::status.eq("active"))
+            .set((
+                tesla::encrypted_access_token.eq(encrypted_access_token),
+                tesla::encrypted_refresh_token.eq(encrypted_refresh_token),
+                tesla::expires_in.eq(expires_in),
+                tesla::last_update.eq(last_update),
+            ))
+            .execute(&mut conn)?;
+
+        Ok(())
+    }
+
+    pub fn get_tesla_region(&self, user_id: i32) -> Result<String, DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        let connection = tesla::table
+            .filter(tesla::user_id.eq(user_id))
+            .filter(tesla::status.eq("active"))
+            .select(tesla::region)
+            .first::<String>(&mut conn)?;
+
+        Ok(connection)
+    }
+
+    pub fn get_selected_vehicle_vin(&self, user_id: i32) -> Result<Option<String>, DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        let vehicle_vin = tesla::table
+            .filter(tesla::user_id.eq(user_id))
+            .filter(tesla::status.eq("active"))
+            .select(tesla::selected_vehicle_vin)
+            .first::<Option<String>>(&mut conn)?;
+
+        Ok(vehicle_vin)
+    }
+
+    pub fn set_selected_vehicle(
+        &self,
+        user_id: i32,
+        vin: String,
+        name: String,
+        vehicle_id: String,
+    ) -> Result<(), DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        diesel::update(tesla::table.filter(tesla::user_id.eq(user_id)))
+            .set((
+                tesla::selected_vehicle_vin.eq(Some(vin)),
+                tesla::selected_vehicle_name.eq(Some(name)),
+                tesla::selected_vehicle_id.eq(Some(vehicle_id)),
+            ))
+            .execute(&mut conn)?;
+
+        Ok(())
+    }
+
+    pub fn get_selected_vehicle_info(&self, user_id: i32) -> Result<Option<(String, String, String)>, DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        let result = tesla::table
+            .filter(tesla::user_id.eq(user_id))
+            .filter(tesla::status.eq("active"))
+            .select((
+                tesla::selected_vehicle_vin,
+                tesla::selected_vehicle_name,
+                tesla::selected_vehicle_id,
+            ))
+            .first::<(Option<String>, Option<String>, Option<String>)>(&mut conn)?;
+
+        match result {
+            (Some(vin), Some(name), Some(id)) => Ok(Some((vin, name, id))),
+            _ => Ok(None),
+        }
+    }
+
+    pub fn mark_tesla_key_paired(&self, user_id: i32, paired: bool) -> Result<(), DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        let paired_value = if paired { 1 } else { 0 };
+
+        diesel::update(tesla::table.filter(tesla::user_id.eq(user_id)))
+            .set(tesla::virtual_key_paired.eq(paired_value))
+            .execute(&mut conn)?;
+
+        Ok(())
+    }
+
+    pub fn get_tesla_key_paired_status(&self, user_id: i32) -> Result<bool, DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        let paired = tesla::table
+            .filter(tesla::user_id.eq(user_id))
+            .filter(tesla::status.eq("active"))
+            .select(tesla::virtual_key_paired)
+            .first::<i32>(&mut conn)?;
+
+        Ok(paired == 1)
+    }
+
 
     pub fn get_google_tasks_tokens(&self, user_id: i32) -> Result<Option<(String, String)>, DieselError> {
         use crate::schema::google_tasks;

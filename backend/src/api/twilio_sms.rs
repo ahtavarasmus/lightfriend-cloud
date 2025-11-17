@@ -705,6 +705,7 @@ Never use markdown, HTML, or any special formatting characters in responses. Ret
         crate::tool_call_utils::internet::get_firecrawl_search_tool(),
         crate::tool_call_utils::internet::get_weather_tool(),
         crate::tool_call_utils::internet::get_directions_tool(),
+        crate::tool_call_utils::tesla::get_tesla_control_tool(),
     ];
 
     let client = match create_openai_client(&state) {
@@ -1367,6 +1368,14 @@ Never use markdown, HTML, or any special formatting characters in responses. Ret
                 } else if name == "fetch_calendar_events" {
                     tracing::debug!("Executing fetch_calendar_events tool call");
                     let response = crate::tool_call_utils::calendar::handle_fetch_calendar_events(
+                        &state,
+                        user.id,
+                        arguments,
+                    ).await;
+                    tool_answers.insert(tool_call_id, response);
+                } else if name == "control_tesla" {
+                    tracing::debug!("Executing control_tesla tool call");
+                    let response = crate::tool_call_utils::tesla::handle_tesla_command(
                         &state,
                         user.id,
                         arguments,

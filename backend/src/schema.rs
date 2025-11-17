@@ -186,6 +186,24 @@ diesel::table! {
 }
 
 diesel::table! {
+    tesla (id) {
+        id -> Nullable<Integer>,
+        user_id -> Integer,
+        encrypted_access_token -> Text,
+        encrypted_refresh_token -> Text,
+        status -> Text,
+        last_update -> Integer,
+        created_on -> Integer,
+        expires_in -> Integer,
+        region -> Text,
+        selected_vehicle_vin -> Nullable<Text>,
+        selected_vehicle_name -> Nullable<Text>,
+        selected_vehicle_id -> Nullable<Text>,
+        virtual_key_paired -> Integer,
+    }
+}
+
+diesel::table! {
     uber (id) {
         id -> Nullable<Integer>,
         user_id -> Integer,
@@ -319,6 +337,7 @@ diesel::joinable!(keywords -> users (user_id));
 diesel::joinable!(message_history -> users (user_id));
 diesel::joinable!(priority_senders -> users (user_id));
 diesel::joinable!(processed_emails -> users (user_id));
+diesel::joinable!(tesla -> users (user_id));
 diesel::joinable!(user_info -> users (user_id));
 diesel::joinable!(user_settings -> users (user_id));
 diesel::joinable!(waiting_checks -> users (user_id));
@@ -339,6 +358,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     processed_emails,
     subaccounts,
     task_notifications,
+    tesla,
     uber,
     usage_logs,
     user_info,

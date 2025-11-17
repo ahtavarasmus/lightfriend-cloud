@@ -573,3 +573,35 @@ pub struct NewCountryAvailability {
     pub last_checked: i32,
     pub created_at: i32,
 }
+
+#[derive(Queryable, Selectable, Insertable, Debug)]
+#[diesel(table_name = crate::schema::tesla)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct Tesla {
+    pub id: Option<i32>,
+    pub user_id: i32,
+    pub encrypted_access_token: String,
+    pub encrypted_refresh_token: String,
+    pub status: String,
+    pub last_update: i32,
+    pub created_on: i32,
+    pub expires_in: i32,
+    pub region: String,
+    pub selected_vehicle_vin: Option<String>,
+    pub selected_vehicle_name: Option<String>,
+    pub selected_vehicle_id: Option<String>,
+    pub virtual_key_paired: i32,  
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = crate::schema::tesla)]
+pub struct NewTesla {
+    pub user_id: i32,
+    pub encrypted_access_token: String,
+    pub encrypted_refresh_token: String,
+    pub status: String,
+    pub last_update: i32,
+    pub created_on: i32,
+    pub expires_in: i32,
+    pub region: String,
+}

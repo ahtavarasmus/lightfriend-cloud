@@ -14,6 +14,7 @@ use crate::connections::uber::UberConnect;
 use crate::connections::signal::SignalConnect;
 use crate::connections::messenger::MessengerConnect;
 use crate::connections::instagram::InstagramConnect;
+use crate::connections::tesla::TeslaConnect;
 use serde_json::Value;
 #[derive(Properties, PartialEq)]
 pub struct ConnectProps {
@@ -46,6 +47,7 @@ pub fn connect(props: &ConnectProps) -> Html {
     let instagram_connected = use_state(|| false);
     let messenger_connected = use_state(|| false);
     let uber_connected = use_state(|| false);
+    let tesla_connected = use_state(|| false);
     let selected_app = use_state(|| None::<String>);
     {
         let calendar_connected = calendar_connected.clone();
@@ -57,6 +59,7 @@ pub fn connect(props: &ConnectProps) -> Html {
         let instagram_connected = instagram_connected.clone();
         let messenger_connected = messenger_connected.clone();
         let uber_connected = uber_connected.clone();
+        let tesla_connected = tesla_connected.clone();
         use_effect_with_deps(
             move |_| {
                 if let Some(window) = web_sys::window() {
@@ -224,6 +227,24 @@ pub fn connect(props: &ConnectProps) -> Html {
                                     }
                                 }
                             });
+                            // tesla status check
+                            spawn_local({
+                                let tesla_connected = tesla_connected.clone();
+                                let token = token.clone();
+                                async move {
+                                    if let Ok(response) = Request::get(&format!("{}/api/auth/tesla/status", config::get_backend_url()))
+                                        .header("Authorization", &format!("Bearer {}", token))
+                                        .send()
+                                        .await
+                                    {
+                                        if let Ok(data) = response.json::<Value>().await {
+                                            if let Some(has_tesla) = data.get("has_tesla").and_then(|v| v.as_bool()) {
+                                                tesla_connected.set(has_tesla);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
                         }
                     }
                 }
@@ -296,6 +317,7 @@ pub fn connect(props: &ConnectProps) -> Html {
             "instagram" => html! { <InstagramConnect user_id={props.user_id} sub_tier={props.sub_tier.clone()} discount={props.discount} /> },
             "messenger" => html! { <MessengerConnect user_id={props.user_id} sub_tier={props.sub_tier.clone()} discount={props.discount} /> },
             "uber" => html! { <UberConnect user_id={props.user_id} sub_tier={props.sub_tier.clone()} discount={props.discount} /> },
+            "tesla" => html! { <TeslaConnect user_id={props.user_id} sub_tier={props.sub_tier.clone()} /> },
             _ => html! {},
         }
     } else {
@@ -358,7 +380,7 @@ pub fn connect(props: &ConnectProps) -> Html {
                             if props.user_id == 1 {
                                 html! {
                                     <>
-                                        <button
+                                        /*<button
                                             class={classes!("app-icon", if *instagram_connected { "connected" } else { "" }, if selected_app.as_ref().map_or(false, |s| s == "instagram") { "selected" } else { "" })}
                                             onclick={let selected_app = selected_app.clone(); Callback::from(move |_: MouseEvent| {
                                                 selected_app.set(if *selected_app == Some("instagram".to_string()) { None } else { Some("instagram".to_string()) });
@@ -381,6 +403,14 @@ pub fn connect(props: &ConnectProps) -> Html {
                                             })}
                                         >
                                             <img src="https://upload.wikimedia.org/wikipedia/commons/c/cc/Uber_logo_2018.svg" alt="Uber" width="24" height="24"/>
+                                        </button>*/
+                                        <button
+                                            class={classes!("app-icon", if *tesla_connected { "connected" } else { "" }, if selected_app.as_ref().map_or(false, |s| s == "tesla") { "selected" } else { "" })}
+                                            onclick={let selected_app = selected_app.clone(); Callback::from(move |_: MouseEvent| {
+                                                selected_app.set(if *selected_app == Some("tesla".to_string()) { None } else { Some("tesla".to_string()) });
+                                            })}
+                                        >
+                                            <img src="https://upload.wikimedia.org/wikipedia/commons/b/bb/Tesla_T_symbol.svg" alt="Tesla" width="24" height="24"/>
                                         </button>
                                     </>
                                 }
