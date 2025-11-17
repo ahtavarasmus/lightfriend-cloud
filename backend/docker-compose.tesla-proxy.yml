@@ -12,7 +12,7 @@ services:
       - PORT=4443
       - TESLA_HTTP_PROXY_TIMEOUT=90s
     ports:
-      - "4443:4443"
+      - "127.0.0.1:4443:4443"
     command:
       - sh
       - -c

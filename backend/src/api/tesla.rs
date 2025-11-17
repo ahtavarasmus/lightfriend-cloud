@@ -117,24 +117,17 @@ impl TeslaClient {
             .ok()
             .filter(|s| !s.is_empty());
 
-        // Check if we're in development mode
-        let is_dev = std::env::var("ENVIRONMENT")
-            .unwrap_or_else(|_| "production".to_string())
-            .to_lowercase() == "development";
-
         // Build proxy client if URL is provided
         let proxy_client = proxy_url.as_ref().map(|_| {
-            // Create client with appropriate certificate validation
-            // In dev: accept self-signed certs for local proxy
-            // In prod: require valid SSL certificates
+            // Create client that accepts self-signed certificates for the internal proxy
+            // The proxy is internal-only (localhost) and uses self-signed certs
+            // Tesla's security requirement is for the public key endpoint, not the proxy
             // 95 second timeout - slightly higher than proxy's 90s timeout
-            let mut builder = reqwest::Client::builder()
-                .timeout(Duration::from_secs(95));
+            let builder = reqwest::Client::builder()
+                .timeout(Duration::from_secs(95))
+                .danger_accept_invalid_certs(true);
 
-            if is_dev {
-                tracing::warn!("Development mode: accepting invalid SSL certificates for Tesla proxy");
-                builder = builder.danger_accept_invalid_certs(true);
-            }
+            tracing::info!("Tesla proxy client configured to accept internal self-signed certificates");
 
             builder.build()
                 .unwrap_or_else(|_| reqwest::Client::new())
