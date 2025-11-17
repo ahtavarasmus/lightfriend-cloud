@@ -4,6 +4,19 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::window;
 use yew::functional::UseStateHandle;
 use crate::config;
+use wasm_bindgen::JsCast;
+use serde::Deserialize;
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+pub struct VehicleInfo {
+    pub vin: String,
+    pub id: String,
+    pub vehicle_id: String,
+    pub name: String,
+    pub state: String,
+    pub selected: bool,
+    pub paired: bool,
+}
 
 #[derive(Properties, PartialEq)]
 pub struct TeslaConnectProps {
@@ -19,6 +32,35 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
     let pairing_link = use_state(|| None::<String>);
     let qr_code_url = use_state(|| None::<String>);
     let show_pairing = use_state(|| false);
+    let lock_loading = use_state(|| false);
+    let climate_loading = use_state(|| false);
+    let defrost_loading = use_state(|| false);
+    let command_result = use_state(|| None::<String>);
+    let battery_level = use_state(|| None::<i32>);
+    let battery_range = use_state(|| None::<f64>);
+    let charging_state = use_state(|| None::<String>);
+    let battery_loading = use_state(|| false);
+    let is_locked = use_state(|| None::<bool>);
+    let inside_temp = use_state(|| None::<f64>);
+    let outside_temp = use_state(|| None::<f64>);
+    let is_climate_on = use_state(|| None::<bool>);
+    let is_front_defroster_on = use_state(|| None::<bool>);
+    let is_rear_defroster_on = use_state(|| None::<bool>);
+
+    // Vehicle selection state
+    let available_vehicles = use_state(|| Vec::<VehicleInfo>::new());
+    let selected_vehicle_name = use_state(|| None::<String>);
+    let show_vehicle_selector = use_state(|| false);
+    let vehicle_loading = use_state(|| false);
+
+    // Per-vehicle pairing state
+    let vehicle_pairing_vin = use_state(|| None::<String>); // VIN of vehicle whose pairing is shown
+    let vehicle_pairing_link = use_state(|| None::<String>);
+    let vehicle_qr_code_url = use_state(|| None::<String>);
+
+    // Disconnect confirmation modal state
+    let show_disconnect_modal = use_state(|| false);
+    let is_disconnecting = use_state(|| false);
 
     // Check Tesla connection status on mount
     {
@@ -102,20 +144,8 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                                                 qr_code_url.set(Some(qr_url.to_string()));
                                             }
 
-                                            // Check if user has dismissed pairing notice before
-                                            if let Some(window) = window() {
-                                                if let Ok(Some(storage)) = window.local_storage() {
-                                                    let dismissed = storage.get_item("tesla_pairing_dismissed")
-                                                        .ok()
-                                                        .flatten()
-                                                        .unwrap_or_else(|| "false".to_string());
-                                                    show_pairing.set(dismissed != "true");
-                                                } else {
-                                                    show_pairing.set(true);
-                                                }
-                                            } else {
-                                                show_pairing.set(true);
-                                            }
+                                            // Don't auto-show pairing instructions - user can click to see them
+                                            show_pairing.set(false);
                                         }
                                     }
                                 }
@@ -125,6 +155,118 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                             }
                         }
                     });
+                }
+                || ()
+            },
+            tesla_connected.clone(),
+        );
+    }
+
+    // Fetch available vehicles when connected
+    {
+        let tesla_connected = tesla_connected.clone();
+        let available_vehicles = available_vehicles.clone();
+        let selected_vehicle_name = selected_vehicle_name.clone();
+
+        use_effect_with_deps(
+            move |connected| {
+                if **connected {
+                    spawn_local(async move {
+                        let token = if let Some(window) = window() {
+                            if let Ok(Some(storage)) = window.local_storage() {
+                                storage.get_item("token").ok().flatten()
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        };
+
+                        if let Some(token) = token {
+                            match Request::get(&format!("{}/api/tesla/vehicles", config::get_backend_url()))
+                                .header("Authorization", &format!("Bearer {}", token))
+                                .send()
+                                .await
+                            {
+                                Ok(response) => {
+                                    if response.ok() {
+                                        if let Ok(data) = response.json::<serde_json::Value>().await {
+                                            if let Some(vehicles_array) = data["vehicles"].as_array() {
+                                                let vehicles: Vec<VehicleInfo> = vehicles_array
+                                                    .iter()
+                                                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                                                    .collect();
+
+                                                // Find selected vehicle name
+                                                let selected_name = vehicles.iter()
+                                                    .find(|v| v.selected)
+                                                    .map(|v| v.name.clone());
+
+                                                available_vehicles.set(vehicles);
+                                                selected_vehicle_name.set(selected_name);
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(_) => {
+                                    // Silently fail - vehicles list is optional
+                                }
+                            }
+                        }
+                    });
+                }
+                || ()
+            },
+            tesla_connected.clone(),
+        );
+    }
+
+    // Clear all state when disconnected (handles edge cases like external disconnects)
+    {
+        let tesla_connected = tesla_connected.clone();
+        let pairing_link = pairing_link.clone();
+        let qr_code_url = qr_code_url.clone();
+        let show_pairing = show_pairing.clone();
+        let battery_level = battery_level.clone();
+        let battery_range = battery_range.clone();
+        let charging_state = charging_state.clone();
+        let is_locked = is_locked.clone();
+        let inside_temp = inside_temp.clone();
+        let outside_temp = outside_temp.clone();
+        let is_climate_on = is_climate_on.clone();
+        let is_front_defroster_on = is_front_defroster_on.clone();
+        let is_rear_defroster_on = is_rear_defroster_on.clone();
+        let available_vehicles = available_vehicles.clone();
+        let selected_vehicle_name = selected_vehicle_name.clone();
+        let show_vehicle_selector = show_vehicle_selector.clone();
+        let vehicle_pairing_vin = vehicle_pairing_vin.clone();
+        let vehicle_pairing_link = vehicle_pairing_link.clone();
+        let vehicle_qr_code_url = vehicle_qr_code_url.clone();
+        let command_result = command_result.clone();
+
+        use_effect_with_deps(
+            move |connected| {
+                if !**connected {
+                    // Clear all Tesla-related state when disconnected
+                    pairing_link.set(None);
+                    qr_code_url.set(None);
+                    show_pairing.set(false);
+                    battery_level.set(None);
+                    battery_range.set(None);
+                    charging_state.set(None);
+                    is_locked.set(None);
+                    inside_temp.set(None);
+                    outside_temp.set(None);
+                    is_climate_on.set(None);
+                    is_front_defroster_on.set(None);
+                    is_rear_defroster_on.set(None);
+                    available_vehicles.set(Vec::new());
+                    selected_vehicle_name.set(None);
+                    show_vehicle_selector.set(false);
+                    vehicle_pairing_vin.set(None);
+                    vehicle_pairing_link.set(None);
+                    vehicle_qr_code_url.set(None);
+                    command_result.set(None);
                 }
                 || ()
             },
@@ -189,13 +331,66 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
         })
     };
 
-    // Handle disconnect button click
+    // Handle disconnect button click - shows confirmation modal
     let onclick_disconnect = {
+        let show_disconnect_modal = show_disconnect_modal.clone();
+        Callback::from(move |_: MouseEvent| {
+            show_disconnect_modal.set(true);
+        })
+    };
+
+    // Handle confirmed disconnect
+    let handle_confirmed_disconnect = {
         let tesla_connected = tesla_connected.clone();
         let error = error.clone();
+        let pairing_link = pairing_link.clone();
+        let qr_code_url = qr_code_url.clone();
+        let show_pairing = show_pairing.clone();
+        let battery_level = battery_level.clone();
+        let battery_range = battery_range.clone();
+        let charging_state = charging_state.clone();
+        let is_locked = is_locked.clone();
+        let inside_temp = inside_temp.clone();
+        let outside_temp = outside_temp.clone();
+        let is_climate_on = is_climate_on.clone();
+        let is_front_defroster_on = is_front_defroster_on.clone();
+        let is_rear_defroster_on = is_rear_defroster_on.clone();
+        let available_vehicles = available_vehicles.clone();
+        let selected_vehicle_name = selected_vehicle_name.clone();
+        let show_vehicle_selector = show_vehicle_selector.clone();
+        let vehicle_pairing_vin = vehicle_pairing_vin.clone();
+        let vehicle_pairing_link = vehicle_pairing_link.clone();
+        let vehicle_qr_code_url = vehicle_qr_code_url.clone();
+        let command_result = command_result.clone();
+        let show_disconnect_modal = show_disconnect_modal.clone();
+        let is_disconnecting = is_disconnecting.clone();
+
         Callback::from(move |_: MouseEvent| {
             let tesla_connected = tesla_connected.clone();
             let error = error.clone();
+            let pairing_link = pairing_link.clone();
+            let qr_code_url = qr_code_url.clone();
+            let show_pairing = show_pairing.clone();
+            let battery_level = battery_level.clone();
+            let battery_range = battery_range.clone();
+            let charging_state = charging_state.clone();
+            let is_locked = is_locked.clone();
+            let inside_temp = inside_temp.clone();
+            let outside_temp = outside_temp.clone();
+            let is_climate_on = is_climate_on.clone();
+            let is_front_defroster_on = is_front_defroster_on.clone();
+            let is_rear_defroster_on = is_rear_defroster_on.clone();
+            let available_vehicles = available_vehicles.clone();
+            let selected_vehicle_name = selected_vehicle_name.clone();
+            let show_vehicle_selector = show_vehicle_selector.clone();
+            let vehicle_pairing_vin = vehicle_pairing_vin.clone();
+            let vehicle_pairing_link = vehicle_pairing_link.clone();
+            let vehicle_qr_code_url = vehicle_qr_code_url.clone();
+            let command_result = command_result.clone();
+            let show_disconnect_modal = show_disconnect_modal.clone();
+            let is_disconnecting = is_disconnecting.clone();
+
+            is_disconnecting.set(true);
 
             if let Some(window) = web_sys::window() {
                 if let Ok(Some(storage)) = window.local_storage() {
@@ -208,7 +403,29 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                             match request {
                                 Ok(response) => {
                                     if response.ok() {
+                                        // Clear all Tesla-related state
                                         tesla_connected.set(false);
+                                        pairing_link.set(None);
+                                        qr_code_url.set(None);
+                                        show_pairing.set(false);
+                                        battery_level.set(None);
+                                        battery_range.set(None);
+                                        charging_state.set(None);
+                                        is_locked.set(None);
+                                        inside_temp.set(None);
+                                        outside_temp.set(None);
+                                        is_climate_on.set(None);
+                                        is_front_defroster_on.set(None);
+                                        is_rear_defroster_on.set(None);
+                                        available_vehicles.set(Vec::new());
+                                        selected_vehicle_name.set(None);
+                                        show_vehicle_selector.set(false);
+                                        vehicle_pairing_vin.set(None);
+                                        vehicle_pairing_link.set(None);
+                                        vehicle_qr_code_url.set(None);
+                                        command_result.set(None);
+                                        show_disconnect_modal.set(false);
+                                        is_disconnecting.set(false);
                                     } else {
                                         if let Ok(error_data) = response.json::<serde_json::Value>().await {
                                             if let Some(error_msg) = error_data.get("error").and_then(|e| e.as_str()) {
@@ -217,10 +434,374 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                                                 error.set(Some(format!("Failed to delete connection: {}", response.status())));
                                             }
                                         }
+                                        is_disconnecting.set(false);
                                     }
                                 }
                                 Err(e) => {
                                     error.set(Some(format!("Network error: {}", e)));
+                                    is_disconnecting.set(false);
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        })
+    };
+
+    // Handle lock/unlock button click
+    let handle_lock = {
+        let lock_loading = lock_loading.clone();
+        let command_result = command_result.clone();
+        let is_locked = is_locked.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            let lock_loading = lock_loading.clone();
+            let command_result = command_result.clone();
+            let is_locked = is_locked.clone();
+
+            if let Some(window) = web_sys::window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    if let Ok(Some(token)) = storage.get_item("token") {
+                        lock_loading.set(true);
+                        command_result.set(None);
+
+                        spawn_local(async move {
+                            // Determine command based on current lock state
+                            let command = match *is_locked {
+                                Some(true) => "unlock",  // If locked, unlock it
+                                Some(false) => "lock",   // If unlocked, lock it
+                                None => "lock",          // If unknown, default to lock
+                            };
+
+                            let body = serde_json::json!({
+                                "command": command
+                            });
+
+                            let request = match Request::post(&format!("{}/api/tesla/command", config::get_backend_url()))
+                                .header("Authorization", &format!("Bearer {}", token))
+                                .json(&body)
+                            {
+                                Ok(req) => req.send().await,
+                                Err(e) => {
+                                    command_result.set(Some(format!("Failed to create request: {}", e)));
+                                    lock_loading.set(false);
+                                    return;
+                                }
+                            };
+
+                            match request {
+                                Ok(response) => {
+                                    if response.ok() {
+                                        // Update state optimistically after successful command
+                                        match command {
+                                            "lock" => is_locked.set(Some(true)),
+                                            "unlock" => is_locked.set(Some(false)),
+                                            _ => {}
+                                        }
+
+                                        if let Ok(data) = response.json::<serde_json::Value>().await {
+                                            if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
+                                                command_result.set(Some(msg.to_string()));
+                                            }
+                                        }
+                                    } else {
+                                        command_result.set(Some("Failed to execute lock command".to_string()));
+                                    }
+                                }
+                                Err(e) => {
+                                    command_result.set(Some(format!("Network error: {}", e)));
+                                }
+                            }
+                            lock_loading.set(false);
+                        });
+                    }
+                }
+            }
+        })
+    };
+
+    // Handle climate button click
+    let handle_climate = {
+        let climate_loading = climate_loading.clone();
+        let command_result = command_result.clone();
+        let is_climate_on = is_climate_on.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            let climate_loading = climate_loading.clone();
+            let command_result = command_result.clone();
+            let is_climate_on = is_climate_on.clone();
+
+            if let Some(window) = web_sys::window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    if let Ok(Some(token)) = storage.get_item("token") {
+                        climate_loading.set(true);
+                        command_result.set(None);
+
+                        spawn_local(async move {
+                            // Determine command based on current climate state
+                            let command = match *is_climate_on {
+                                Some(true) => "climate_off",  // If on, turn it off
+                                Some(false) => "climate_on",  // If off, turn it on
+                                None => "climate_on",         // If unknown, default to on
+                            };
+
+                            let body = serde_json::json!({
+                                "command": command
+                            });
+
+                            let request = match Request::post(&format!("{}/api/tesla/command", config::get_backend_url()))
+                                .header("Authorization", &format!("Bearer {}", token))
+                                .json(&body)
+                            {
+                                Ok(req) => req.send().await,
+                                Err(e) => {
+                                    command_result.set(Some(format!("Failed to create request: {}", e)));
+                                    climate_loading.set(false);
+                                    return;
+                                }
+                            };
+
+                            match request {
+                                Ok(response) => {
+                                    if response.ok() {
+                                        // Update state optimistically after successful command
+                                        match command {
+                                            "climate_on" => is_climate_on.set(Some(true)),
+                                            "climate_off" => is_climate_on.set(Some(false)),
+                                            _ => {}
+                                        }
+
+                                        if let Ok(data) = response.json::<serde_json::Value>().await {
+                                            if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
+                                                command_result.set(Some(msg.to_string()));
+                                            }
+                                        }
+                                    } else {
+                                        command_result.set(Some("Failed to execute climate command".to_string()));
+                                    }
+                                }
+                                Err(e) => {
+                                    command_result.set(Some(format!("Network error: {}", e)));
+                                }
+                            }
+                            climate_loading.set(false);
+                        });
+                    }
+                }
+            }
+        })
+    };
+
+    // Handle defrost button click
+    let handle_defrost = {
+        let defrost_loading = defrost_loading.clone();
+        let command_result = command_result.clone();
+        let is_front_defroster_on = is_front_defroster_on.clone();
+        let is_rear_defroster_on = is_rear_defroster_on.clone();
+        let is_climate_on = is_climate_on.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            let defrost_loading = defrost_loading.clone();
+            let command_result = command_result.clone();
+            let is_front_defroster_on = is_front_defroster_on.clone();
+            let is_rear_defroster_on = is_rear_defroster_on.clone();
+            let is_climate_on = is_climate_on.clone();
+
+            if let Some(window) = web_sys::window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    if let Ok(Some(token)) = storage.get_item("token") {
+                        defrost_loading.set(true);
+                        command_result.set(None);
+
+                        spawn_local(async move {
+                            // Determine command based on current defrost state
+                            let front_on = (*is_front_defroster_on).unwrap_or(false);
+                            let rear_on = (*is_rear_defroster_on).unwrap_or(false);
+                            let any_defrost_on = front_on || rear_on;
+
+                            // If defrost is on, turn off climate (which turns off defrost)
+                            // If defrost is off, activate defrost
+                            let command = if any_defrost_on {
+                                "climate_off"  // Turn off climate to deactivate defrost
+                            } else {
+                                "defrost"      // Activate max defrost
+                            };
+
+                            let body = serde_json::json!({
+                                "command": command
+                            });
+
+                            let request = match Request::post(&format!("{}/api/tesla/command", config::get_backend_url()))
+                                .header("Authorization", &format!("Bearer {}", token))
+                                .json(&body)
+                            {
+                                Ok(req) => req.send().await,
+                                Err(e) => {
+                                    command_result.set(Some(format!("Failed to create request: {}", e)));
+                                    defrost_loading.set(false);
+                                    return;
+                                }
+                            };
+
+                            match request {
+                                Ok(response) => {
+                                    if response.ok() {
+                                        // Update state optimistically based on command
+                                        match command {
+                                            "defrost" => {
+                                                // Defrost activates both front and rear defrosters and turns on climate
+                                                is_front_defroster_on.set(Some(true));
+                                                is_rear_defroster_on.set(Some(true));
+                                                is_climate_on.set(Some(true));
+                                            }
+                                            "climate_off" => {
+                                                // Turning off climate deactivates all defrosters
+                                                is_front_defroster_on.set(Some(false));
+                                                is_rear_defroster_on.set(Some(false));
+                                                is_climate_on.set(Some(false));
+                                            }
+                                            _ => {}
+                                        }
+
+                                        if let Ok(data) = response.json::<serde_json::Value>().await {
+                                            if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
+                                                command_result.set(Some(msg.to_string()));
+                                            }
+                                        }
+                                    } else {
+                                        command_result.set(Some("Failed to execute defrost command".to_string()));
+                                    }
+                                }
+                                Err(e) => {
+                                    command_result.set(Some(format!("Network error: {}", e)));
+                                }
+                            }
+                            defrost_loading.set(false);
+                        });
+                    }
+                }
+            }
+        })
+    };
+
+    // Handle vehicle selection
+    let handle_vehicle_select = {
+        let vehicle_loading = vehicle_loading.clone();
+        let selected_vehicle_name = selected_vehicle_name.clone();
+        let command_result = command_result.clone();
+        let show_vehicle_selector = show_vehicle_selector.clone();
+        let available_vehicles = available_vehicles.clone();
+
+        Callback::from(move |vehicle: VehicleInfo| {
+            let vehicle_loading = vehicle_loading.clone();
+            let selected_vehicle_name = selected_vehicle_name.clone();
+            let command_result = command_result.clone();
+            let show_vehicle_selector = show_vehicle_selector.clone();
+            let available_vehicles = available_vehicles.clone();
+            let vehicle_clone = vehicle.clone();
+
+            if let Some(window) = web_sys::window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    if let Ok(Some(token)) = storage.get_item("token") {
+                        vehicle_loading.set(true);
+
+                        spawn_local(async move {
+                            let body = serde_json::json!({
+                                "vin": vehicle_clone.vin,
+                                "name": vehicle_clone.name,
+                                "vehicle_id": vehicle_clone.vehicle_id,
+                            });
+
+                            let request = match Request::post(&format!("{}/api/tesla/select-vehicle", config::get_backend_url()))
+                                .header("Authorization", &format!("Bearer {}", token))
+                                .json(&body)
+                            {
+                                Ok(req) => req.send().await,
+                                Err(e) => {
+                                    command_result.set(Some(format!("Failed to select vehicle: {}", e)));
+                                    vehicle_loading.set(false);
+                                    return;
+                                }
+                            };
+
+                            match request {
+                                Ok(response) => {
+                                    if response.ok() {
+                                        // Update local state
+                                        selected_vehicle_name.set(Some(vehicle_clone.name.clone()));
+
+                                        // Update selected flag in vehicles list
+                                        let mut vehicles = (*available_vehicles).clone();
+                                        for v in vehicles.iter_mut() {
+                                            v.selected = v.vin == vehicle_clone.vin;
+                                        }
+                                        available_vehicles.set(vehicles);
+
+                                        // Close selector
+                                        show_vehicle_selector.set(false);
+
+                                        if let Ok(data) = response.json::<serde_json::Value>().await {
+                                            if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
+                                                command_result.set(Some(msg.to_string()));
+                                            }
+                                        }
+                                    } else {
+                                        command_result.set(Some("Failed to select vehicle".to_string()));
+                                    }
+                                }
+                                Err(e) => {
+                                    command_result.set(Some(format!("Network error: {}", e)));
+                                }
+                            }
+                            vehicle_loading.set(false);
+                        });
+                    }
+                }
+            }
+        })
+    };
+
+    // Handle showing vehicle-specific pairing QR code
+    let handle_show_vehicle_pairing = {
+        let vehicle_pairing_vin = vehicle_pairing_vin.clone();
+        let vehicle_pairing_link = vehicle_pairing_link.clone();
+        let vehicle_qr_code_url = vehicle_qr_code_url.clone();
+        let command_result = command_result.clone();
+
+        Callback::from(move |vin: String| {
+            let vehicle_pairing_vin = vehicle_pairing_vin.clone();
+            let vehicle_pairing_link = vehicle_pairing_link.clone();
+            let vehicle_qr_code_url = vehicle_qr_code_url.clone();
+            let command_result = command_result.clone();
+            let vin_clone = vin.clone();
+
+            if let Some(window) = web_sys::window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    if let Ok(Some(token)) = storage.get_item("token") {
+                        spawn_local(async move {
+                            match Request::get(&format!("{}/api/auth/tesla/virtual-key?vin={}", config::get_backend_url(), urlencoding::encode(&vin_clone)))
+                                .header("Authorization", &format!("Bearer {}", token))
+                                .send()
+                                .await
+                            {
+                                Ok(response) => {
+                                    if response.ok() {
+                                        if let Ok(data) = response.json::<serde_json::Value>().await {
+                                            if let Some(link) = data["pairing_link"].as_str() {
+                                                vehicle_pairing_link.set(Some(link.to_string()));
+                                            }
+                                            if let Some(qr_url) = data["qr_code_url"].as_str() {
+                                                vehicle_qr_code_url.set(Some(qr_url.to_string()));
+                                            }
+                                            vehicle_pairing_vin.set(Some(vin_clone));
+                                        }
+                                    } else {
+                                        command_result.set(Some("Failed to fetch pairing info".to_string()));
+                                    }
+                                }
+                                Err(e) => {
+                                    command_result.set(Some(format!("Failed to fetch pairing info: {}", e)));
                                 }
                             }
                         });
@@ -243,14 +824,118 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
         })
     };
 
-    // Handle show pairing again button click
-    let onclick_show_pairing = {
-        let show_pairing = show_pairing.clone();
+    // Handle battery refresh button click
+    let handle_battery_refresh = {
+        let battery_loading = battery_loading.clone();
+        let battery_level = battery_level.clone();
+        let battery_range = battery_range.clone();
+        let charging_state = charging_state.clone();
+        let is_locked = is_locked.clone();
+        let inside_temp = inside_temp.clone();
+        let outside_temp = outside_temp.clone();
+        let is_climate_on = is_climate_on.clone();
+        let is_front_defroster_on = is_front_defroster_on.clone();
+        let is_rear_defroster_on = is_rear_defroster_on.clone();
+        let available_vehicles = available_vehicles.clone();
+        let selected_vehicle_name = selected_vehicle_name.clone();
+
         Callback::from(move |_: MouseEvent| {
-            show_pairing.set(true);
+            let battery_loading = battery_loading.clone();
+            let battery_level = battery_level.clone();
+            let battery_range = battery_range.clone();
+            let charging_state = charging_state.clone();
+            let is_locked = is_locked.clone();
+            let inside_temp = inside_temp.clone();
+            let outside_temp = outside_temp.clone();
+            let is_climate_on = is_climate_on.clone();
+            let is_front_defroster_on = is_front_defroster_on.clone();
+            let is_rear_defroster_on = is_rear_defroster_on.clone();
+            let available_vehicles = available_vehicles.clone();
+            let selected_vehicle_name = selected_vehicle_name.clone();
+
             if let Some(window) = web_sys::window() {
                 if let Ok(Some(storage)) = window.local_storage() {
-                    let _ = storage.set_item("tesla_pairing_dismissed", "false");
+                    if let Ok(Some(token)) = storage.get_item("token") {
+                        battery_loading.set(true);
+
+                        spawn_local(async move {
+                            let request = Request::get(&format!("{}/api/tesla/battery-status", config::get_backend_url()))
+                                .header("Authorization", &format!("Bearer {}", token))
+                                .send()
+                                .await;
+
+                            match request {
+                                Ok(response) => {
+                                    if response.ok() {
+                                        if let Ok(data) = response.json::<serde_json::Value>().await {
+                                            if let Some(level) = data["battery_level"].as_i64() {
+                                                battery_level.set(Some(level as i32));
+                                            }
+                                            if let Some(range) = data["battery_range"].as_f64() {
+                                                battery_range.set(Some(range));
+                                            }
+                                            if let Some(state) = data["charging_state"].as_str() {
+                                                charging_state.set(Some(state.to_string()));
+                                            }
+                                            if let Some(locked) = data["locked"].as_bool() {
+                                                is_locked.set(Some(locked));
+                                            }
+                                            if let Some(temp) = data["inside_temp"].as_f64() {
+                                                inside_temp.set(Some(temp));
+                                            }
+                                            if let Some(temp) = data["outside_temp"].as_f64() {
+                                                outside_temp.set(Some(temp));
+                                            }
+                                            if let Some(climate) = data["is_climate_on"].as_bool() {
+                                                is_climate_on.set(Some(climate));
+                                            }
+                                            if let Some(front_defrost) = data["is_front_defroster_on"].as_bool() {
+                                                is_front_defroster_on.set(Some(front_defrost));
+                                            }
+                                            if let Some(rear_defrost) = data["is_rear_defroster_on"].as_bool() {
+                                                is_rear_defroster_on.set(Some(rear_defrost));
+                                            }
+                                        }
+
+                                        // Also fetch vehicles list to update selected vehicle
+                                        let token_clone = token.clone();
+                                        let available_vehicles = available_vehicles.clone();
+                                        let selected_vehicle_name = selected_vehicle_name.clone();
+                                        spawn_local(async move {
+                                            if let Ok(vehicles_response) = Request::get(&format!("{}/api/tesla/vehicles", config::get_backend_url()))
+                                                .header("Authorization", &format!("Bearer {}", token_clone))
+                                                .send()
+                                                .await
+                                            {
+                                                if vehicles_response.ok() {
+                                                    if let Ok(data) = vehicles_response.json::<serde_json::Value>().await {
+                                                        if let Some(vehicles_array) = data["vehicles"].as_array() {
+                                                            let vehicles: Vec<VehicleInfo> = vehicles_array
+                                                                .iter()
+                                                                .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                                                                .collect();
+
+                                                            // Find selected vehicle name
+                                                            let selected_name = vehicles.iter()
+                                                                .find(|v| v.selected)
+                                                                .map(|v| v.name.clone());
+
+                                                            available_vehicles.set(vehicles);
+                                                            selected_vehicle_name.set(selected_name);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+                                Err(_e) => {
+                                    // Error handling - could set an error state here
+                                }
+                            }
+                            battery_loading.set(false);
+                        });
+                    }
                 }
             }
         })
@@ -330,124 +1015,646 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                     </button>
                 } else {
                     <div class="connection-actions">
-                        <p class="success-message">{"✓ Tesla connected successfully"}</p>
+                        // Unified Vehicle Status & Controls section
+                        <div style="
+                            background: rgba(0, 0, 0, 0.2);
+                            border: 1px solid rgba(30, 144, 255, 0.2);
+                            border-radius: 12px;
+                            padding: 1.5rem;
+                            margin: 15px 0;
+                        ">
+                            <h4 style="margin-top: 0; color: #7EB2FF; font-size: 16px; font-weight: 500;">{"Vehicle Status & Controls"}</h4>
 
-                        // Show virtual key pairing section if needed
-                        if *show_pairing && pairing_link.is_some() {
-                            <div class="pairing-section" style="
-                                background: linear-gradient(135deg, #fff3cd 0%, #fff8dc 100%);
-                                border: 2px solid #ffc107;
-                                border-radius: 8px;
-                                padding: 20px;
-                                margin: 15px 0;
-                                box-shadow: 0 2px 8px rgba(255, 193, 7, 0.2);
-                            ">
-                                <h4 style="margin-top: 0; color: #856404; display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-size: 24px;">{"⚠️"}</span>
-                                    {"One More Step Required"}
-                                </h4>
-                                <p style="color: #856404; margin-bottom: 15px;">
-                                    {"To control your Tesla remotely, you must authorize this app in your Tesla mobile app."}
-                                </p>
+                            // Vehicle selector - show selected vehicle, only show change button if multiple vehicles
+                            {
+                                if !available_vehicles.is_empty() {
+                                    let show_vehicle_selector_clone = show_vehicle_selector.clone();
+                                    let has_multiple_vehicles = available_vehicles.len() > 1;
+                                    let current_vin = available_vehicles.iter()
+                                        .find(|v| v.selected)
+                                        .map(|v| v.vin.clone());
+                                    let is_paired = available_vehicles.iter()
+                                        .find(|v| v.selected)
+                                        .map(|v| v.paired)
+                                        .unwrap_or(false);
+                                    let handle_pairing = handle_show_vehicle_pairing.clone();
+                                    let current_vin_for_badge = current_vin.clone();
+                                    html! {
+                                        <div style="margin-bottom: 15px;">
+                                            <div style="
+                                                display: flex;
+                                                align-items: center;
+                                                justify-content: space-between;
+                                                padding: 10px 15px;
+                                                background: rgba(30, 144, 255, 0.1);
+                                                border: 1px solid rgba(30, 144, 255, 0.2);
+                                                border-radius: 8px;
+                                            ">
+                                                <div style="display: flex; align-items: center; gap: 10px;">
+                                                    <div>
+                                                        <div style="color: #999; font-size: 12px;">{"Selected Vehicle"}</div>
+                                                        <div style="color: #fff; font-size: 14px; font-weight: 500;">
+                                                            {selected_vehicle_name.as_ref().map(|n| n.as_str()).unwrap_or("None")}
+                                                        </div>
+                                                    </div>
+                                                    {
+                                                        // Show pairing status badge
+                                                        if is_paired {
+                                                            html! {
+                                                                <div style="
+                                                                    padding: 4px 10px;
+                                                                    background: rgba(105, 240, 174, 0.15);
+                                                                    color: #69f0ae;
+                                                                    border: 1px solid rgba(105, 240, 174, 0.3);
+                                                                    border-radius: 12px;
+                                                                    font-size: 11px;
+                                                                    font-weight: 600;
+                                                                    white-space: nowrap;
+                                                                ">
+                                                                    {"✓ Paired"}
+                                                                </div>
+                                                            }
+                                                        } else {
+                                                            html! {
+                                                                <button
+                                                                    onclick={Callback::from(move |e: MouseEvent| {
+                                                                        e.stop_propagation();
+                                                                        if let Some(vin) = current_vin_for_badge.clone() {
+                                                                            handle_pairing.emit(vin);
+                                                                        }
+                                                                    })}
+                                                                    style="
+                                                                        padding: 4px 10px;
+                                                                        background: rgba(255, 152, 0, 0.15);
+                                                                        color: #ff9800;
+                                                                        border: 1px solid rgba(255, 152, 0, 0.3);
+                                                                        border-radius: 12px;
+                                                                        font-size: 11px;
+                                                                        font-weight: 600;
+                                                                        cursor: pointer;
+                                                                        white-space: nowrap;
+                                                                    "
+                                                                >
+                                                                    {"⚠️ Setup Key"}
+                                                                </button>
+                                                            }
+                                                        }
+                                                    }
+                                                </div>
+                                                {
+                                                    if has_multiple_vehicles {
+                                                        html! {
+                                                            <button
+                                                                onclick={
+                                                                    let show_vehicle_selector_inner = show_vehicle_selector_clone.clone();
+                                                                    Callback::from(move |_| {
+                                                                        show_vehicle_selector_inner.set(!*show_vehicle_selector_inner);
+                                                                    })
+                                                                }
+                                                                style="
+                                                                    padding: 8px 16px;
+                                                                    background: rgba(30, 144, 255, 0.2);
+                                                                    color: #7EB2FF;
+                                                                    border: 1px solid rgba(30, 144, 255, 0.3);
+                                                                    border-radius: 6px;
+                                                                    cursor: pointer;
+                                                                    font-size: 13px;
+                                                                "
+                                                            >
+                                                                {"Change Vehicle"}
+                                                            </button>
+                                                        }
+                                                    } else {
+                                                        html! {}
+                                                    }
+                                                }
+                                            </div>
 
-                                <div style="background: white; padding: 15px; border-radius: 6px; margin-bottom: 15px;">
-                                    <h5 style="margin-top: 0; color: #333;">{"Setup Instructions:"}</h5>
-                                    <ol style="color: #333; margin: 10px 0; padding-left: 20px;">
-                                        <li>{"Open the Tesla mobile app on your phone"}</li>
-                                        <li>{"Scan the QR code below OR tap the button"}</li>
-                                        <li>{"Approve the pairing request in your Tesla app"}</li>
-                                        <li>{"Select which vehicle(s) to grant access to"}</li>
-                                    </ol>
-                                </div>
+                                            // Vehicle selector dropdown (only if multiple vehicles)
+                                            {
+                                                if has_multiple_vehicles && *show_vehicle_selector {
+                                                    html! {
+                                                        <div style="
+                                                            margin-top: 10px;
+                                                            padding: 15px;
+                                                            background: rgba(0, 0, 0, 0.3);
+                                                            border: 1px solid rgba(30, 144, 255, 0.2);
+                                                            border-radius: 8px;
+                                                        ">
+                                                            <div style="color: #7EB2FF; font-size: 13px; font-weight: 600; margin-bottom: 10px;">
+                                                                {"Select Vehicle:"}
+                                                            </div>
+                                                            {
+                                                                available_vehicles.iter().map(|vehicle| {
+                                                                    let is_selected = vehicle.selected;
+                                                                    let handle_select = handle_vehicle_select.clone();
+                                                                    let vehicle_clone = vehicle.clone();
 
-                                if let Some(qr_url) = (*qr_code_url).as_ref() {
-                                    <div style="text-align: center; margin: 20px 0;">
-                                        <img
-                                            src={qr_url.clone()}
-                                            alt="Tesla Pairing QR Code"
-                                            style="width: 250px; height: 250px; border: 4px solid #ffc107; border-radius: 8px; background: white; padding: 10px;"
-                                        />
-                                        <p style="color: #856404; margin-top: 10px; font-size: 14px;">
-                                            {"Scan this QR code with your Tesla mobile app"}
-                                        </p>
-                                    </div>
+                                                                    html! {
+                                                                        <div
+                                                                            key={vehicle.vin.clone()}
+                                                                            onclick={Callback::from(move |_| {
+                                                                                handle_select.emit(vehicle_clone.clone());
+                                                                            })}
+                                                                            style={format!("
+                                                                                padding: 12px;
+                                                                                margin-bottom: 8px;
+                                                                                background: {};
+                                                                                border: 1px solid {};
+                                                                                border-radius: 6px;
+                                                                                cursor: pointer;
+                                                                                transition: all 0.2s;
+                                                                            ",
+                                                                                if is_selected { "rgba(30, 144, 255, 0.2)" } else { "rgba(0, 0, 0, 0.2)" },
+                                                                                if is_selected { "rgba(30, 144, 255, 0.4)" } else { "rgba(30, 144, 255, 0.2)" }
+                                                                            )}
+                                                                        >
+                                                                            <div style="display: flex; align-items: center; justify-content: space-between;">
+                                                                                <div>
+                                                                                    <div style="color: #fff; font-size: 14px; font-weight: 500;">
+                                                                                        {&vehicle.name}
+                                                                                    </div>
+                                                                                    <div style="color: #999; font-size: 12px;">
+                                                                                        {format!("VIN: ...{}", &vehicle.vin[vehicle.vin.len()-6..])}
+                                                                                    </div>
+                                                                                    <div style={format!("color: {}; font-size: 11px;",
+                                                                                        if vehicle.state == "online" { "#69f0ae" } else { "#999" }
+                                                                                    )}>
+                                                                                        {format!("State: {}", vehicle.state)}
+                                                                                    </div>
+                                                                                </div>
+                                                                                {
+                                                                                    if is_selected {
+                                                                                        html! {
+                                                                                            <div style="color: #69f0ae; font-size: 18px;">{"✓"}</div>
+                                                                                        }
+                                                                                    } else {
+                                                                                        html! {}
+                                                                                    }
+                                                                                }
+                                                                            </div>
+                                                                        </div>
+                                                                    }
+                                                                }).collect::<Html>()
+                                                            }
+                                                        </div>
+                                                    }
+                                                } else {
+                                                    html! {}
+                                                }
+                                            }
+
+                                            // Virtual key QR code display (shown when badge is clicked)
+                                            {
+                                                if let Some(vin) = current_vin {
+                                                    let show_pairing_for_this = (*vehicle_pairing_vin).as_ref().map(|v| v == &vin).unwrap_or(false);
+
+                                                    if show_pairing_for_this {
+                                                        html! {
+                                                            <div style="
+                                                                margin-top: 10px;
+                                                                padding: 20px;
+                                                                background: rgba(0, 0, 0, 0.4);
+                                                                border: 1px solid rgba(126, 178, 255, 0.3);
+                                                                border-radius: 8px;
+                                                            ">
+                                                                <div style="color: #7EB2FF; font-size: 14px; font-weight: 600; margin-bottom: 15px;">
+                                                                    {"Virtual Key Setup Instructions"}
+                                                                </div>
+                                                                <div style="color: #ccc; font-size: 13px; line-height: 1.6; margin-bottom: 15px;">
+                                                                    <div style="margin-bottom: 10px;">
+                                                                        {"To enable vehicle commands, you must pair a virtual key with this vehicle:"}
+                                                                    </div>
+                                                                    <ol style="margin: 10px 0; padding-left: 20px;">
+                                                                        <li>{"Open your Tesla mobile app"}</li>
+                                                                        <li>{"Scan the QR code below OR tap the button"}</li>
+                                                                        <li>{"Approve the pairing request in your Tesla app"}</li>
+                                                                        <li>{"Commands will work once pairing is complete"}</li>
+                                                                    </ol>
+                                                                </div>
+
+                                                                {
+                                                                    if let Some(qr_url) = (*vehicle_qr_code_url).as_ref() {
+                                                                        html! {
+                                                                            <div style="text-align: center; margin: 20px 0;">
+                                                                                <img
+                                                                                    src={qr_url.clone()}
+                                                                                    alt="Tesla Pairing QR Code"
+                                                                                    style="max-width: 300px; width: 100%; height: auto; border-radius: 8px;"
+                                                                                />
+                                                                                <div style="color: #999; font-size: 12px; margin-top: 10px;">
+                                                                                    {"Scan this QR code with your Tesla mobile app"}
+                                                                                </div>
+                                                                            </div>
+                                                                        }
+                                                                    } else {
+                                                                        html! {}
+                                                                    }
+                                                                }
+
+                                                                {
+                                                                    if let Some(link) = (*vehicle_pairing_link).as_ref() {
+                                                                        html! {
+                                                                            <div style="text-align: center;">
+                                                                                <a
+                                                                                    href={link.clone()}
+                                                                                    target="_blank"
+                                                                                    class="pairing-button"
+                                                                                    style="
+                                                                                        display: inline-block;
+                                                                                        padding: 12px 24px;
+                                                                                        background: linear-gradient(135deg, #1e90ff 0%, #0066cc 100%);
+                                                                                        color: white;
+                                                                                        text-decoration: none;
+                                                                                        border-radius: 8px;
+                                                                                        font-weight: 600;
+                                                                                        font-size: 14px;
+                                                                                        transition: all 0.3s;
+                                                                                    "
+                                                                                >
+                                                                                    {"Open in Tesla App"}
+                                                                                </a>
+                                                                            </div>
+                                                                        }
+                                                                    } else {
+                                                                        html! {}
+                                                                    }
+                                                                }
+
+                                                                // Pairing confirmation
+                                                                <div style="
+                                                                    margin-top: 20px;
+                                                                    padding-top: 20px;
+                                                                    border-top: 1px solid rgba(126, 178, 255, 0.2);
+                                                                ">
+                                                                    <div style="color: #7EB2FF; font-size: 13px; font-weight: 600; margin-bottom: 10px; text-align: center;">
+                                                                        {"Did you complete the pairing in the Tesla app?"}
+                                                                    </div>
+                                                                    <div style="display: flex; gap: 10px; justify-content: center;">
+                                                                        <button
+                                                                            onclick={{
+                                                                                let vehicle_pairing_vin = vehicle_pairing_vin.clone();
+                                                                                Callback::from(move |_| {
+                                                                                    let vehicle_pairing_vin = vehicle_pairing_vin.clone();
+                                                                                    if let Some(window) = web_sys::window() {
+                                                                                        if let Ok(Some(storage)) = window.local_storage() {
+                                                                                            if let Ok(Some(token)) = storage.get_item("token") {
+                                                                                                spawn_local(async move {
+                                                                                                    // Send mark-paired request
+                                                                                                    match Request::post(&format!("{}/api/tesla/mark-paired", config::get_backend_url()))
+                                                                                                        .header("Authorization", &format!("Bearer {}", token))
+                                                                                                        .json(&serde_json::json!({"paired": true}))
+                                                                                                    {
+                                                                                                        Ok(req) => {
+                                                                                                            match req.send().await {
+                                                                                                                Ok(response) => {
+                                                                                                                    if response.ok() {
+                                                                                                                        // Success - close UI and refresh
+                                                                                                                        vehicle_pairing_vin.set(None);
+                                                                                                                        if let Some(window) = web_sys::window() {
+                                                                                                                            let _ = window.location().reload();
+                                                                                                                        }
+                                                                                                                    }
+                                                                                                                }
+                                                                                                                Err(_) => {
+                                                                                                                    // Request failed - close UI anyway
+                                                                                                                    vehicle_pairing_vin.set(None);
+                                                                                                                }
+                                                                                                            }
+                                                                                                        }
+                                                                                                        Err(_) => {
+                                                                                                            // Failed to create request - close UI
+                                                                                                            vehicle_pairing_vin.set(None);
+                                                                                                        }
+                                                                                                    }
+                                                                                                });
+                                                                                            }
+                                                                                        }
+                                                                                    }
+                                                                                })
+                                                                            }}
+                                                                            style="
+                                                                                padding: 8px 20px;
+                                                                                background: rgba(105, 240, 174, 0.2);
+                                                                                color: #69f0ae;
+                                                                                border: 1px solid rgba(105, 240, 174, 0.3);
+                                                                                border-radius: 6px;
+                                                                                font-weight: 600;
+                                                                                cursor: pointer;
+                                                                            "
+                                                                        >
+                                                                            {"✓ Yes, Paired"}
+                                                                        </button>
+                                                                        <button
+                                                                            onclick={{
+                                                                                let vehicle_pairing_vin = vehicle_pairing_vin.clone();
+                                                                                Callback::from(move |_| {
+                                                                                    vehicle_pairing_vin.set(None);
+                                                                                })
+                                                                            }}
+                                                                            style="
+                                                                                padding: 8px 20px;
+                                                                                background: rgba(0, 0, 0, 0.2);
+                                                                                color: #999;
+                                                                                border: 1px solid rgba(255, 255, 255, 0.1);
+                                                                                border-radius: 6px;
+                                                                                font-weight: 600;
+                                                                                cursor: pointer;
+                                                                            "
+                                                                        >
+                                                                            {"Not Yet"}
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        }
+                                                    } else {
+                                                        html! {}
+                                                    }
+                                                } else {
+                                                    html! {}
+                                                }
+                                            }
+                                        </div>
+                                    }
+                                } else {
+                                    html! {}
                                 }
+                            }
 
-                                if let Some(link) = (*pairing_link).as_ref() {
-                                    <div style="text-align: center; margin: 15px 0;">
-                                        <a
-                                            href={link.clone()}
-                                            target="_blank"
-                                            class="pairing-button"
-                                            style="
-                                                display: inline-block;
-                                                background: #28a745;
-                                                color: white;
-                                                padding: 12px 24px;
-                                                border-radius: 6px;
-                                                text-decoration: none;
-                                                font-weight: bold;
-                                                font-size: 16px;
-                                                box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-                                            "
-                                        >
-                                            {"📱 Open Tesla App to Pair"}
-                                        </a>
-                                        <p style="color: #856404; margin-top: 8px; font-size: 13px;">
-                                            {"(Best on mobile device)"}
-                                        </p>
-                                    </div>
+                            // Refresh button at top
+                            <button
+                                onclick={handle_battery_refresh.clone()}
+                                disabled={*battery_loading}
+                                style="
+                                    width: 100%;
+                                    margin-bottom: 20px;
+                                    padding: 12px 20px;
+                                    background: rgba(30, 144, 255, 0.15);
+                                    color: #7EB2FF;
+                                    border: 1px solid rgba(30, 144, 255, 0.3);
+                                    border-radius: 8px;
+                                    font-size: 15px;
+                                    font-weight: 600;
+                                    cursor: pointer;
+                                    transition: all 0.2s;
+                                    opacity: {if *battery_loading { \"0.6\" } else { \"1\" }};
+                                "
+                            >
+                                {if *battery_loading { "🔄 Refreshing..." } else { "🔄 Refresh Status" }}
+                            </button>
+
+                            <h5 style="color: #7EB2FF; font-size: 14px; font-weight: 500; margin: 15px 0 10px 0;">{"Battery Status"}</h5>
+                            {
+                                if battery_level.is_some() {
+                                    html! {
+                                        <>
+                                            <div style="display: flex; align-items: center; gap: 15px; flex-wrap: wrap;">
+                                                // Battery icon (dynamic based on level)
+                                                {{
+                                                    let level = (*battery_level).unwrap_or(0);
+                                                    let icon_class = if level <= 10 {
+                                                        "fa-solid fa-battery-empty"
+                                                    } else if level <= 35 {
+                                                        "fa-solid fa-battery-quarter"
+                                                    } else if level <= 60 {
+                                                        "fa-solid fa-battery-half"
+                                                    } else if level <= 90 {
+                                                        "fa-solid fa-battery-three-quarters"
+                                                    } else {
+                                                        "fa-solid fa-battery-full"
+                                                    };
+                                                    html! {
+                                                        <i class={icon_class} style="font-size: 32px; color: #7EB2FF;"></i>
+                                                    }
+                                                }}
+                                                <div style="flex: 1;">
+                                                    <div style="color: #fff; font-size: 18px; font-weight: 600;">
+                                                        {format!("{}%", (*battery_level).unwrap_or(0))}
+                                                    </div>
+                                                    {
+                                                        if let Some(range) = *battery_range {
+                                                            html! {
+                                                                <div style="color: #999; font-size: 14px;">
+                                                                    {format!("{:.0} mi range", range)}
+                                                                </div>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }
+                                                    }
+                                                    {
+                                                        if let Some(state) = (*charging_state).as_ref() {
+                                                            html! {
+                                                                <div style="color: #69f0ae; font-size: 13px; margin-top: 4px;">
+                                                                    {state}
+                                                                </div>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }
+                                                    }
+                                                    {
+                                                        if let Some(temp) = *inside_temp {
+                                                            html! {
+                                                                <div style="color: #999; font-size: 13px; margin-top: 4px;">
+                                                                    {format!("Inside: {:.1}°C", temp)}
+                                                                </div>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }
+                                                    }
+                                                    {
+                                                        if let Some(temp) = *outside_temp {
+                                                            html! {
+                                                                <div style="color: #999; font-size: 13px;">
+                                                                    {format!("Outside: {:.1}°C", temp)}
+                                                                </div>
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }
+                                                    }
+                                                    {
+                                                        if let Some(climate) = *is_climate_on {
+                                                            if climate {
+                                                                html! {
+                                                                    <div style="color: #69f0ae; font-size: 13px; margin-top: 4px;">
+                                                                        {"🌡️ Climate On"}
+                                                                    </div>
+                                                                }
+                                                            } else {
+                                                                html! {}
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }
+                                                    }
+                                                    {
+                                                        if let Some(front_defrost) = *is_front_defroster_on {
+                                                            if front_defrost {
+                                                                html! {
+                                                                    <div style="color: #69f0ae; font-size: 13px; margin-top: 4px;">
+                                                                        {"❄️ Front Defrost On"}
+                                                                    </div>
+                                                                }
+                                                            } else {
+                                                                html! {}
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }
+                                                    }
+                                                    {
+                                                        if let Some(rear_defrost) = *is_rear_defroster_on {
+                                                            if rear_defrost {
+                                                                html! {
+                                                                    <div style="color: #69f0ae; font-size: 13px; margin-top: 4px;">
+                                                                        {"❄️ Rear Defrost On"}
+                                                                    </div>
+                                                                }
+                                                            } else {
+                                                                html! {}
+                                                            }
+                                                        } else {
+                                                            html! {}
+                                                        }
+                                                    }
+                                                </div>
+                                            </div>
+                                        </>
+                                    }
+                                } else {
+                                    html! {
+                                        <div style="color: #999; font-size: 14px; text-align: center; padding: 20px 0;">
+                                            {"Click Refresh to load battery status"}
+                                        </div>
+                                    }
                                 }
+                            }
 
-                                <div style="margin-top: 20px; padding-top: 15px; border-top: 1px solid #ffc107; display: flex; gap: 10px; justify-content: center;">
-                                    <button
-                                        onclick={onclick_dismiss_pairing.clone()}
-                                        style="
-                                            background: #28a745;
-                                            color: white;
-                                            border: none;
-                                            padding: 10px 20px;
-                                            border-radius: 5px;
-                                            cursor: pointer;
-                                            font-size: 14px;
-                                        "
-                                    >
-                                        {"✓ I've Completed Pairing"}
-                                    </button>
-                                    <button
-                                        onclick={onclick_dismiss_pairing.clone()}
-                                        style="
-                                            background: transparent;
-                                            color: #856404;
-                                            border: 1px solid #856404;
-                                            padding: 10px 20px;
-                                            border-radius: 5px;
-                                            cursor: pointer;
-                                            font-size: 14px;
-                                        "
-                                    >
-                                        {"Remind Me Later"}
-                                    </button>
-                                </div>
-                            </div>
-                        } else if !*show_pairing && pairing_link.is_some() {
-                            <div style="margin: 10px 0;">
+                            <h5 style="color: #7EB2FF; font-size: 14px; font-weight: 500; margin: 20px 0 10px 0;">{"Quick Controls"}</h5>
+                            <div style="display: flex; gap: 12px; margin-bottom: 15px; flex-wrap: wrap;">
                                 <button
-                                    onclick={onclick_show_pairing}
+                                    onclick={handle_lock.clone()}
+                                    disabled={*lock_loading}
+                                    class="tesla-control-button"
                                     style="
-                                        background: transparent;
-                                        color: #ffc107;
-                                        border: 1px solid #ffc107;
-                                        padding: 8px 16px;
-                                        border-radius: 5px;
+                                        flex: 1;
+                                        min-width: 120px;
+                                        padding: 14px 20px;
+                                        background: rgba(30, 144, 255, 0.1);
+                                        color: #7EB2FF;
+                                        border: 1px solid rgba(30, 144, 255, 0.2);
+                                        border-radius: 8px;
+                                        font-size: 15px;
                                         cursor: pointer;
-                                        font-size: 13px;
+                                        transition: all 0.2s;
+                                        opacity: {if *lock_loading { \"0.6\" } else { \"1\" }};
                                     "
                                 >
-                                    {"🔑 Show Virtual Key Pairing Instructions"}
+                                    {
+                                        if *lock_loading {
+                                            html! { <><i class="fas fa-spinner fa-spin"></i>{" Loading..."}</> }
+                                        } else if let Some(locked) = *is_locked {
+                                            if locked {
+                                                html! { <><i class="fas fa-lock"></i>{" Locked"}</> }
+                                            } else {
+                                                html! { <><i class="fas fa-unlock"></i>{" Unlocked"}</> }
+                                            }
+                                        } else {
+                                            html! { <><i class="fas fa-question"></i>{" Lock"}</> }
+                                        }
+                                    }
+                                </button>
+
+                                <button
+                                    onclick={handle_climate.clone()}
+                                    disabled={*climate_loading}
+                                    class="tesla-control-button"
+                                    style="
+                                        flex: 1;
+                                        min-width: 120px;
+                                        padding: 14px 20px;
+                                        background: rgba(30, 144, 255, 0.1);
+                                        color: #7EB2FF;
+                                        border: 1px solid rgba(30, 144, 255, 0.2);
+                                        border-radius: 8px;
+                                        font-size: 15px;
+                                        cursor: pointer;
+                                        transition: all 0.2s;
+                                        opacity: {if *climate_loading { \"0.6\" } else { \"1\" }};
+                                    "
+                                >
+                                    {
+                                        if *climate_loading {
+                                            html! { <><i class="fas fa-spinner fa-spin"></i>{" Loading..."}</> }
+                                        } else if let Some(climate_on) = *is_climate_on {
+                                            if climate_on {
+                                                html! { <><i class="fas fa-fan"></i>{" Climate On"}</> }
+                                            } else {
+                                                html! { <><i class="fas fa-fan"></i>{" Climate Off"}</> }
+                                            }
+                                        } else {
+                                            html! { <><i class="fas fa-question"></i>{" Climate"}</> }
+                                        }
+                                    }
+                                </button>
+
+                                <button
+                                    onclick={handle_defrost.clone()}
+                                    disabled={*defrost_loading}
+                                    class="tesla-control-button"
+                                    style="
+                                        flex: 1;
+                                        min-width: 120px;
+                                        padding: 14px 20px;
+                                        background: rgba(30, 144, 255, 0.1);
+                                        color: #7EB2FF;
+                                        border: 1px solid rgba(30, 144, 255, 0.2);
+                                        border-radius: 8px;
+                                        font-size: 15px;
+                                        cursor: pointer;
+                                        transition: all 0.2s;
+                                        opacity: {if *defrost_loading { \"0.6\" } else { \"1\" }};
+                                    "
+                                >
+                                    {
+                                        if *defrost_loading {
+                                            html! { <><i class="fas fa-spinner fa-spin"></i>{" Loading..."}</> }
+                                        } else {
+                                            // Show defrost status if we have data
+                                            let front_on = is_front_defroster_on.unwrap_or(false);
+                                            let rear_on = is_rear_defroster_on.unwrap_or(false);
+                                            let any_on = front_on || rear_on;
+
+                                            if is_front_defroster_on.is_none() && is_rear_defroster_on.is_none() {
+                                                html! { <><i class="fas fa-question"></i>{" Defrost"}</> }
+                                            } else if any_on {
+                                                html! { <><i class="fas fa-snowflake"></i>{" Defrost On"}</> }
+                                            } else {
+                                                html! { <><i class="fas fa-snowflake"></i>{" Defrost Off"}</> }
+                                            }
+                                        }
+                                    }
                                 </button>
                             </div>
-                        }
+
+                            // Command result feedback
+                            if let Some(result) = (*command_result).as_ref() {
+                                <div style="
+                                    padding: 10px;
+                                    background: rgba(105, 240, 174, 0.1);
+                                    color: #69f0ae;
+                                    border-radius: 8px;
+                                    font-size: 14px;
+                                    border: 1px solid rgba(105, 240, 174, 0.2);
+                                ">
+                                    {result}
+                                </div>
+                            }
+                        </div>
 
                         <button
                             class="disconnect-button"
@@ -455,6 +1662,52 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                         >
                             {"Disconnect"}
                         </button>
+
+                        // Disconnect confirmation modal
+                        if *show_disconnect_modal {
+                            <div class="modal-overlay">
+                                <div class="modal-content">
+                                    <h3>{"Confirm Disconnection"}</h3>
+                                    <p>{"Are you sure you want to disconnect Tesla? This will:"}</p>
+                                    <ul>
+                                        <li>{"Remove your Tesla OAuth tokens from our servers"}</li>
+                                        <li>{"Delete your selected vehicle and pairing status"}</li>
+                                        <li>{"Stop all Tesla vehicle control features"}</li>
+                                        <li>{"Require reconnection to use Tesla features again"}</li>
+                                    </ul>
+                                    <p style="margin-top: 15px; color: #7EB2FF; font-size: 13px;">
+                                        {"Note: To fully revoke access, you may also want to visit "}
+                                        <a
+                                            href="https://auth.tesla.com/user/revoke/consent"
+                                            target="_blank"
+                                            style="color: #69f0ae; text-decoration: underline;"
+                                        >
+                                            {"Tesla's consent management page"}
+                                        </a>
+                                        {" after disconnecting."}
+                                    </p>
+                                    if *is_disconnecting {
+                                        <p class="disconnecting-message">{"Disconnecting Tesla... Please wait."}</p>
+                                    }
+                                    <div class="modal-buttons">
+                                        <button onclick={
+                                            let show_disconnect_modal = show_disconnect_modal.clone();
+                                            Callback::from(move |_| show_disconnect_modal.set(false))
+                                        } class="cancel-button" disabled={*is_disconnecting}>
+                                            {"Cancel"}
+                                        </button>
+                                        <button onclick={handle_confirmed_disconnect.clone()}
+                                            class="confirm-disconnect-button" disabled={*is_disconnecting}>
+                                            if *is_disconnecting {
+                                                <span class="button-spinner"></span> {"Disconnecting..."}
+                                            } else {
+                                                {"Yes, Disconnect"}
+                                            }
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        }
                     </div>
                 }
             } else {
@@ -464,145 +1717,107 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                 </div>
             }
 
-            // Admin test controls for user_id 1
-            if props.user_id == 1 && *tesla_connected {
-                <div class="admin-test-section" style="border-top: 1px solid #ddd; margin-top: 20px; padding-top: 20px;">
-                    <h4>{"Admin Test Controls"}</h4>
-                    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 10px;">
-                        <button
-                            class="admin-test-button"
-                            style="padding: 10px; background-color: #4CAF50; color: white; border: none; border-radius: 5px; cursor: pointer;"
-                            onclick={create_command_handler("lock", error.clone())}
-                        >
-                            {"🔒 Lock"}
-                        </button>
-                        <button
-                            class="admin-test-button"
-                            style="padding: 10px; background-color: #2196F3; color: white; border: none; border-radius: 5px; cursor: pointer;"
-                            onclick={create_command_handler("unlock", error.clone())}
-                        >
-                            {"🔓 Unlock"}
-                        </button>
-                        <button
-                            class="admin-test-button"
-                            style="padding: 10px; background-color: #FF9800; color: white; border: none; border-radius: 5px; cursor: pointer;"
-                            onclick={create_command_handler("climate_on", error.clone())}
-                        >
-                            {"❄️ Start Climate"}
-                        </button>
-                        <button
-                            class="admin-test-button"
-                            style="padding: 10px; background-color: #f44336; color: white; border: none; border-radius: 5px; cursor: pointer;"
-                            onclick={create_command_handler("climate_off", error.clone())}
-                        >
-                            {"🔥 Stop Climate"}
-                        </button>
-                        <button
-                            class="admin-test-button"
-                            style="padding: 10px; background-color: #9C27B0; color: white; border: none; border-radius: 5px; cursor: pointer;"
-                            onclick={create_command_handler("remote_start", error.clone())}
-                        >
-                            {"🚗 Remote Start"}
-                        </button>
-                        <button
-                            class="admin-test-button"
-                            style="padding: 10px; background-color: #607D8B; color: white; border: none; border-radius: 5px; cursor: pointer;"
-                            onclick={create_command_handler("charge_status", error.clone())}
-                        >
-                            {"🔋 Charge Status"}
-                        </button>
-                    </div>
-                    <div id="command-result" style="margin-top: 10px; padding: 10px; background-color: #f0f0f0; border-radius: 5px; display: none;">
-                    </div>
-                </div>
-            }
+            <style>
+                {r#"
+                    .modal-overlay {
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        background: rgba(0, 0, 0, 0.85);
+                        display: flex;
+                        justify-content: center;
+                        align-items: center;
+                        z-index: 1000;
+                    }
+                    .modal-content {
+                        background: #1a1a1a;
+                        border: 1px solid rgba(30, 144, 255, 0.2);
+                        border-radius: 12px;
+                        padding: 2rem;
+                        max-width: 500px;
+                        width: 90%;
+                        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+                    }
+                    .modal-content h3 {
+                        color: #FF6347;
+                        margin-bottom: 1rem;
+                    }
+                    .modal-content p {
+                        color: #CCC;
+                        margin-bottom: 1rem;
+                    }
+                    .modal-content ul {
+                        margin-bottom: 2rem;
+                        padding-left: 1.5rem;
+                    }
+                    .modal-content li {
+                        color: #999;
+                        margin-bottom: 0.5rem;
+                    }
+                    .modal-buttons {
+                        display: flex;
+                        gap: 1rem;
+                        justify-content: flex-end;
+                    }
+                    .cancel-button {
+                        background: transparent;
+                        border: 1px solid rgba(204, 204, 204, 0.3);
+                        color: #CCC;
+                        padding: 0.8rem 1.5rem;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        transition: all 0.3s ease;
+                    }
+                    .cancel-button:hover {
+                        background: rgba(204, 204, 204, 0.1);
+                        transform: translateY(-2px);
+                    }
+                    .cancel-button:disabled {
+                        opacity: 0.5;
+                        cursor: not-allowed;
+                    }
+                    .confirm-disconnect-button {
+                        background: linear-gradient(45deg, #FF6347, #FF4500);
+                        color: white;
+                        border: none;
+                        padding: 0.8rem 1.5rem;
+                        border-radius: 8px;
+                        cursor: pointer;
+                        transition: all 0.3s ease;
+                        display: flex;
+                        align-items: center;
+                        gap: 0.5rem;
+                    }
+                    .confirm-disconnect-button:hover:not(:disabled) {
+                        transform: translateY(-2px);
+                        box-shadow: 0 4px 12px rgba(255, 99, 71, 0.3);
+                    }
+                    .confirm-disconnect-button:disabled {
+                        opacity: 0.6;
+                        cursor: not-allowed;
+                    }
+                    .button-spinner {
+                        display: inline-block;
+                        width: 14px;
+                        height: 14px;
+                        border: 2px solid rgba(255, 255, 255, 0.3);
+                        border-radius: 50%;
+                        border-top-color: white;
+                        animation: spin 1s ease-in-out infinite;
+                    }
+                    .disconnecting-message {
+                        color: #7EB2FF;
+                        font-style: italic;
+                        text-align: center;
+                        margin: 1rem 0;
+                    }
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                "#}
+            </style>
         </div>
     }
-}
-
-// Helper function to create command handlers
-fn create_command_handler(command: &str, error: UseStateHandle<Option<String>>) -> Callback<MouseEvent> {
-    let command = command.to_string();
-    Callback::from(move |_: MouseEvent| {
-        let command = command.clone();
-        let error = error.clone();
-
-        spawn_local(async move {
-            // Show loading state
-            if let Some(window) = web_sys::window() {
-                if let Some(document) = window.document() {
-                    if let Some(result_div) = document.get_element_by_id("command-result") {
-                        let _ = result_div.set_inner_html("⏳ Sending command...");
-                        let _ = result_div.set_attribute("style", "margin-top: 10px; padding: 10px; background-color: #fff3cd; border-radius: 5px; display: block;");
-                    }
-                }
-            }
-
-            let token = if let Some(window) = window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    storage.get_item("token").ok().flatten()
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-
-            if let Some(token) = token {
-                let request_body = serde_json::json!({
-                    "command": command,
-                    "vehicle_id": null
-                });
-
-                match Request::post(&format!("{}/api/tesla/command", config::get_backend_url()))
-                    .header("Authorization", &format!("Bearer {}", token))
-                    .json(&request_body)
-                    .expect("Failed to set JSON body")
-                    .send()
-                    .await
-                {
-                    Ok(response) => {
-                        if let Some(window) = web_sys::window() {
-                            if let Some(document) = window.document() {
-                                if let Some(result_div) = document.get_element_by_id("command-result") {
-                                    if response.ok() {
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            let success = data["success"].as_bool().unwrap_or(false);
-                                            let message = data["message"].as_str().unwrap_or("Command sent");
-
-                                            let bg_color = if success { "#d4edda" } else { "#f8d7da" };
-                                            let text_color = if success { "#155724" } else { "#721c24" };
-                                            let icon = if success { "✅" } else { "❌" };
-
-                                            let _ = result_div.set_inner_html(&format!("{} {}", icon, message));
-                                            let _ = result_div.set_attribute("style", &format!("margin-top: 10px; padding: 10px; background-color: {}; color: {}; border-radius: 5px; display: block;", bg_color, text_color));
-                                        }
-                                    } else {
-                                        if let Ok(error_data) = response.json::<serde_json::Value>().await {
-                                            let error_msg = error_data["error"].as_str().unwrap_or("Command failed");
-                                            let _ = result_div.set_inner_html(&format!("❌ {}", error_msg));
-                                            let _ = result_div.set_attribute("style", "margin-top: 10px; padding: 10px; background-color: #f8d7da; color: #721c24; border-radius: 5px; display: block;");
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error.set(Some(format!("Network error: {}", e)));
-                        if let Some(window) = web_sys::window() {
-                            if let Some(document) = window.document() {
-                                if let Some(result_div) = document.get_element_by_id("command-result") {
-                                    let _ = result_div.set_inner_html(&format!("❌ Network error: {}", e));
-                                    let _ = result_div.set_attribute("style", "margin-top: 10px; padding: 10px; background-color: #f8d7da; color: #721c24; border-radius: 5px; display: block;");
-                                }
-                            }
-                        }
-                    }
-                }
-            } else {
-                error.set(Some("No auth token found".to_string()));
-            }
-        });
-    })
 }

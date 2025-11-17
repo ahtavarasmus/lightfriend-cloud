@@ -587,6 +587,10 @@ pub struct Tesla {
     pub created_on: i32,
     pub expires_in: i32,
     pub region: String,
+    pub selected_vehicle_vin: Option<String>,
+    pub selected_vehicle_name: Option<String>,
+    pub selected_vehicle_id: Option<String>,
+    pub virtual_key_paired: i32,  
 }
 
 #[derive(Insertable, Debug)]

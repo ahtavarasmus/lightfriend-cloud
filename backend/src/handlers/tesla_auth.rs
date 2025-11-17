@@ -312,13 +312,6 @@ pub async fn tesla_callback(
     let region = audience_url.clone();
     info!("Using region from OAuth audience: {}", region);
 
-    // Register app in user's region
-    let tesla_client = crate::api::tesla::TeslaClient::new_with_region(&region);
-    if let Err(e) = tesla_client.register_in_region().await {
-        error!("Failed to register in user's region {}: {}", region, e);
-        // Continue anyway - registration might already be done
-    }
-
     // Get current timestamp
     let current_time = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -686,6 +679,7 @@ pub async fn serve_tesla_public_key() -> Result<(StatusCode, String), (StatusCod
 pub async fn get_virtual_key_link(
     State(state): State<Arc<AppState>>,
     auth_user: AuthUser,
+    Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     info!("Generating virtual key pairing link for user {}", auth_user.user_id);
 
@@ -713,7 +707,13 @@ pub async fn get_virtual_key_link(
         .to_string();
 
     // Generate the Tesla virtual key pairing link
-    let pairing_link = format!("https://www.tesla.com/_ak/{}", domain);
+    // Add VIN parameter if provided for vehicle-specific pairing
+    let pairing_link = if let Some(vin) = params.get("vin") {
+        info!("Generating vehicle-specific pairing link for VIN: {}", vin);
+        format!("https://www.tesla.com/_ak/{}?vin={}", domain, vin)
+    } else {
+        format!("https://www.tesla.com/_ak/{}", domain)
+    };
 
     info!("Generated virtual key pairing link: {}", pairing_link);
 
@@ -723,4 +723,388 @@ pub async fn get_virtual_key_link(
         "instructions": "Open this link on your mobile device or scan the QR code in your Tesla mobile app to authorize vehicle commands. This is required before you can control your vehicle remotely.",
         "qr_code_url": format!("https://api.qrserver.com/v1/create-qr-code/?size=300x300&data={}", urlencoding::encode(&pairing_link))
     })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TeslaCommandRequest {
+    pub command: String,
+    pub vehicle_id: Option<String>,
+}
+
+pub async fn tesla_command(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Json(payload): Json<TeslaCommandRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    info!("Tesla command request from user {}: {}", auth_user.user_id, payload.command);
+
+    // Wrap command in JSON format expected by handle_tesla_command
+    let args_json = json!({"command": payload.command}).to_string();
+
+    let result = crate::tool_call_utils::tesla::handle_tesla_command(
+        &state,
+        auth_user.user_id,
+        &args_json,
+    ).await;
+
+    info!("Tesla command result: {}", result);
+
+    Ok(Json(json!({
+        "success": true,
+        "message": result
+    })))
+}
+
+pub async fn tesla_battery_status(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    info!("Tesla battery status request from user {}", auth_user.user_id);
+
+    // Check if user has Tesla connected
+    let has_tesla = state.user_repository
+        .has_active_tesla(auth_user.user_id)
+        .unwrap_or(false);
+
+    if !has_tesla {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Tesla not connected"})),
+        ));
+    }
+
+    // Get valid access token (with auto-refresh)
+    let access_token = match get_valid_tesla_access_token(&state, auth_user.user_id).await {
+        Ok(token) => token,
+        Err((status, msg)) => {
+            return Err((status, Json(json!({"error": msg}))));
+        }
+    };
+
+    // Get region from database
+    let region = state.user_repository
+        .get_tesla_region(auth_user.user_id)
+        .unwrap_or_else(|_| "na".to_string());
+
+    // Create Tesla client
+    let tesla_client = crate::api::tesla::TeslaClient::new_with_proxy(&region);
+
+    // Get vehicles
+    let vehicles = match tesla_client.get_vehicles(&access_token).await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Failed to get Tesla vehicles: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to get vehicles"})),
+            ));
+        }
+    };
+
+    if vehicles.is_empty() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "No vehicles found"})),
+        ));
+    }
+
+    // Try to use selected vehicle, fall back to first vehicle if none selected
+    let selected_vin = state.user_repository
+        .get_selected_vehicle_vin(auth_user.user_id)
+        .ok()
+        .flatten();
+
+    let vehicle = if let Some(vin) = selected_vin.as_ref() {
+        match vehicles.iter().find(|v| &v.vin == vin) {
+            Some(v) => {
+                info!("Using selected vehicle with VIN: {}", vin);
+                v
+            }
+            None => {
+                info!("Selected vehicle VIN {} not found, falling back to first vehicle", vin);
+                &vehicles[0]
+            }
+        }
+    } else {
+        info!("No vehicle selected, using first vehicle");
+        &vehicles[0]
+    };
+
+    let vehicle_vin = &vehicle.vin;
+
+    // Wake up vehicle if asleep
+    if vehicle.state != "online" {
+        info!("Vehicle is asleep (state: {}), waking up...", vehicle.state);
+        match tesla_client.wake_up(&access_token, vehicle_vin).await {
+            Ok(true) => {
+                info!("Vehicle successfully woken up");
+            }
+            Ok(false) => {
+                error!("Vehicle wake-up returned false");
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": "Failed to wake vehicle"})),
+                ));
+            }
+            Err(e) => {
+                error!("Failed to wake up vehicle: {}", e);
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({"error": format!("Failed to wake vehicle: {}", e)})),
+                ));
+            }
+        }
+    } else {
+        info!("Vehicle is already online");
+    }
+
+    // Get vehicle data (includes charge_state, climate_state, vehicle_state in one call)
+    let vehicle_data = match tesla_client.get_vehicle_data(&access_token, vehicle_vin).await {
+        Ok(data) => data,
+        Err(e) => {
+            error!("Failed to get Tesla vehicle data: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Failed to get vehicle data: {}", e)})),
+            ));
+        }
+    };
+
+    // Extract charge state
+    let (battery_level, battery_range, charging_state) = if let Some(charge_state) = &vehicle_data.charge_state {
+        (
+            Some(charge_state.battery_level),
+            Some(charge_state.battery_range),
+            Some(charge_state.charging_state.clone()),
+        )
+    } else {
+        (None, None, None)
+    };
+
+    // Extract climate data
+    let (inside_temp, outside_temp, is_climate_on, is_front_defroster_on, is_rear_defroster_on) = if let Some(climate) = &vehicle_data.climate_state {
+        (
+            climate.inside_temp,
+            climate.outside_temp,
+            climate.is_climate_on,
+            climate.is_front_defroster_on,
+            climate.is_rear_defroster_on,
+        )
+    } else {
+        (None, None, None, None, None)
+    };
+
+    // Extract vehicle state
+    let locked = vehicle_data.vehicle_state.as_ref()
+        .and_then(|vs| vs.locked);
+
+    Ok(Json(json!({
+        "battery_level": battery_level,
+        "battery_range": battery_range,
+        "charging_state": charging_state,
+        "inside_temp": inside_temp,
+        "outside_temp": outside_temp,
+        "is_climate_on": is_climate_on,
+        "is_front_defroster_on": is_front_defroster_on,
+        "is_rear_defroster_on": is_rear_defroster_on,
+        "locked": locked
+    })))
+}
+
+pub async fn tesla_list_vehicles(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    info!("Tesla list vehicles request from user {}", auth_user.user_id);
+
+    // Check if user has Tesla connected
+    let has_tesla = state.user_repository
+        .has_active_tesla(auth_user.user_id)
+        .unwrap_or(false);
+
+    if !has_tesla {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Tesla not connected"})),
+        ));
+    }
+
+    // Get valid access token (with auto-refresh)
+    let access_token = match get_valid_tesla_access_token(&state, auth_user.user_id).await {
+        Ok(token) => token,
+        Err((status, msg)) => {
+            return Err((status, Json(json!({"error": msg}))));
+        }
+    };
+
+    // Get region from database
+    let region = state.user_repository
+        .get_tesla_region(auth_user.user_id)
+        .unwrap_or_else(|_| "na".to_string());
+
+    // Create Tesla client
+    let tesla_client = crate::api::tesla::TeslaClient::new_with_proxy(&region);
+
+    // Get vehicles
+    let vehicles = match tesla_client.get_vehicles(&access_token).await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Failed to get Tesla vehicles: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to get vehicles"})),
+            ));
+        }
+    };
+
+    // Get currently selected vehicle
+    let mut selected_vin = state.user_repository
+        .get_selected_vehicle_vin(auth_user.user_id)
+        .ok()
+        .flatten();
+
+    // Auto-select first vehicle if none is selected
+    if selected_vin.is_none() && !vehicles.is_empty() {
+        let first_vehicle = &vehicles[0];
+        let vin = first_vehicle.vin.clone();
+        let name = first_vehicle.display_name.as_ref().unwrap_or(&"Unknown".to_string()).clone();
+        let vehicle_id = first_vehicle.id.to_string();
+
+        info!("Auto-selecting first vehicle for user {}: {} (VIN: {})", auth_user.user_id, name, vin);
+
+        // Save selection to database
+        if let Err(e) = state.user_repository.set_selected_vehicle(
+            auth_user.user_id,
+            vin.clone(),
+            name,
+            vehicle_id
+        ) {
+            error!("Failed to auto-select vehicle: {}", e);
+        } else {
+            selected_vin = Some(vin);
+        }
+    }
+
+    // Get virtual key paired status
+    let is_paired = state.user_repository
+        .get_tesla_key_paired_status(auth_user.user_id)
+        .unwrap_or(false);
+
+    // Format response
+    let vehicle_list: Vec<serde_json::Value> = vehicles.iter().map(|v| {
+        json!({
+            "vin": v.vin,
+            "id": v.id.to_string(),
+            "vehicle_id": v.vehicle_id.to_string(),
+            "name": v.display_name.as_ref().unwrap_or(&"Unknown".to_string()),
+            "state": v.state,
+            "selected": selected_vin.as_ref().map_or(false, |s| s == &v.vin),
+            "paired": is_paired  // Add pairing status
+        })
+    }).collect();
+
+    Ok(Json(json!({
+        "vehicles": vehicle_list,
+        "selected_vin": selected_vin
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SelectVehicleRequest {
+    pub vin: String,
+    pub name: String,
+    pub vehicle_id: String,
+}
+
+pub async fn tesla_select_vehicle(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Json(payload): Json<SelectVehicleRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    info!("Tesla select vehicle request from user {}: VIN {}", auth_user.user_id, payload.vin);
+
+    // Check if user has Tesla connected
+    let has_tesla = state.user_repository
+        .has_active_tesla(auth_user.user_id)
+        .unwrap_or(false);
+
+    if !has_tesla {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Tesla not connected"})),
+        ));
+    }
+
+    // Update selected vehicle in database
+    match state.user_repository.set_selected_vehicle(
+        auth_user.user_id,
+        payload.vin.clone(),
+        payload.name.clone(),
+        payload.vehicle_id.clone(),
+    ) {
+        Ok(_) => {
+            info!("Successfully updated selected vehicle for user {}: {} (VIN: {})",
+                  auth_user.user_id, payload.name, payload.vin);
+            Ok(Json(json!({
+                "success": true,
+                "message": format!("Selected vehicle: {}", payload.name)
+            })))
+        }
+        Err(e) => {
+            error!("Failed to update selected vehicle: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to update selected vehicle"})),
+            ))
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MarkPairedRequest {
+    pub paired: bool,
+}
+
+pub async fn tesla_mark_paired(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Json(payload): Json<MarkPairedRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    info!("Tesla mark paired request from user {}: paired={}", auth_user.user_id, payload.paired);
+
+    // Check if user has Tesla connected
+    let has_tesla = state.user_repository
+        .has_active_tesla(auth_user.user_id)
+        .unwrap_or(false);
+
+    if !has_tesla {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "Tesla not connected"})),
+        ));
+    }
+
+    // Update paired status in database
+    match state.user_repository.mark_tesla_key_paired(auth_user.user_id, payload.paired) {
+        Ok(_) => {
+            info!("Successfully updated Tesla key paired status for user {}: {}",
+                  auth_user.user_id, payload.paired);
+            Ok(Json(json!({
+                "success": true,
+                "paired": payload.paired,
+                "message": if payload.paired {
+                    "Virtual key marked as paired"
+                } else {
+                    "Virtual key marked as not paired"
+                }
+            })))
+        }
+        Err(e) => {
+            error!("Failed to update paired status: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to update paired status"})),
+            ))
+        }
+    }
 }

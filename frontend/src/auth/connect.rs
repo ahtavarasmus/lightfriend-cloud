@@ -380,7 +380,7 @@ pub fn connect(props: &ConnectProps) -> Html {
                             if props.user_id == 1 {
                                 html! {
                                     <>
-                                        <button
+                                        /*<button
                                             class={classes!("app-icon", if *instagram_connected { "connected" } else { "" }, if selected_app.as_ref().map_or(false, |s| s == "instagram") { "selected" } else { "" })}
                                             onclick={let selected_app = selected_app.clone(); Callback::from(move |_: MouseEvent| {
                                                 selected_app.set(if *selected_app == Some("instagram".to_string()) { None } else { Some("instagram".to_string()) });
@@ -403,7 +403,7 @@ pub fn connect(props: &ConnectProps) -> Html {
                                             })}
                                         >
                                             <img src="https://upload.wikimedia.org/wikipedia/commons/c/cc/Uber_logo_2018.svg" alt="Uber" width="24" height="24"/>
-                                        </button>
+                                        </button>*/
                                         <button
                                             class={classes!("app-icon", if *tesla_connected { "connected" } else { "" }, if selected_app.as_ref().map_or(false, |s| s == "tesla") { "selected" } else { "" })}
                                             onclick={let selected_app = selected_app.clone(); Callback::from(move |_: MouseEvent| {

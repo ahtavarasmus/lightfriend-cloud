@@ -19,12 +19,13 @@ pub fn get_tesla_control_tool() -> openai_api_rs::v1::chat_completion::Tool {
         "command".to_string(),
         Box::new(types::JSONSchemaDefine {
             schema_type: Some(types::JSONSchemaType::String),
-            description: Some("Command to execute: 'lock', 'unlock', 'climate_on', 'climate_off', 'remote_start', or 'charge_status'".to_string()),
+            description: Some("Command to execute: 'lock', 'unlock', 'climate_on', 'climate_off', 'defrost', 'remote_start', or 'charge_status'".to_string()),
             enum_values: Some(vec![
                 "lock".to_string(),
                 "unlock".to_string(),
                 "climate_on".to_string(),
                 "climate_off".to_string(),
+                "defrost".to_string(),
                 "remote_start".to_string(),
                 "charge_status".to_string(),
             ]),
@@ -37,7 +38,7 @@ pub fn get_tesla_control_tool() -> openai_api_rs::v1::chat_completion::Tool {
         function: types::Function {
             name: String::from("control_tesla"),
             description: Some(String::from(
-                "Control Tesla vehicle functions: lock/unlock doors, start/stop climate control, remote start driving, or check charge status",
+                "Control Tesla vehicle functions: lock/unlock doors, start/stop climate control, defrost vehicle (max heat + heated seats/steering wheel for deep ice), remote start driving, or check charge status",
             )),
             parameters: types::FunctionParameters {
                 schema_type: types::JSONSchemaType::Object,
@@ -117,7 +118,7 @@ pub async fn handle_tesla_command(
     // Create Tesla client with user's region and proxy support
     let tesla_client = TeslaClient::new_with_proxy(&region);
 
-    // Get first vehicle (for simplicity, we're using the first vehicle)
+    // Get all vehicles
     let vehicles = match tesla_client.get_vehicles(&access_token).await {
         Ok(v) => v,
         Err(e) => {
@@ -136,29 +137,147 @@ pub async fn handle_tesla_command(
         info!("Vehicle {}: {} (VIN: {}, State: {})", i + 1, v.display_name.as_deref().unwrap_or("Unknown"), v.vin, v.state);
     }
 
-    let vehicle = &vehicles[0];
+    // Try to use selected vehicle, fall back to first vehicle if none selected
+    let selected_vin = state.user_repository
+        .get_selected_vehicle_vin(user_id)
+        .ok()
+        .flatten();
+
+    let vehicle = if let Some(vin) = selected_vin.as_ref() {
+        match vehicles.iter().find(|v| &v.vin == vin) {
+            Some(v) => {
+                info!("Using selected vehicle with VIN: {}", vin);
+                v
+            }
+            None => {
+                info!("Selected vehicle VIN {} not found, falling back to first vehicle", vin);
+                &vehicles[0]
+            }
+        }
+    } else {
+        info!("No vehicle selected, using first vehicle");
+        &vehicles[0]
+    };
+
     let vehicle_id = vehicle.id.to_string();
     let vehicle_vin = &vehicle.vin;  // VIN is required for signed commands
     let vehicle_name = vehicle.display_name.as_deref().unwrap_or("your Tesla");
 
     info!("Using vehicle: {} (ID: {}, VIN: {}, State: {})", vehicle_name, vehicle_id, vehicle_vin, vehicle.state);
 
-    // Wake up vehicle if it's asleep (except for charge_status which works on sleeping vehicles)
+    // Handle asleep vehicles: move to background for wake-up + command execution
     if command != "charge_status" && vehicle.state != "online" {
-        info!("Vehicle is {}, attempting to wake it up...", vehicle.state);
-        match tesla_client.wake_up(&access_token, vehicle_vin).await {
-            Ok(true) => info!("Vehicle is now online"),
-            Ok(false) => {
-                return format!("Your {} is asleep and couldn't be woken up. Please try again in a moment.", vehicle_name);
+        info!("Vehicle is {}, spawning background task to wake and execute command", vehicle.state);
+
+        let state_clone = state.clone();
+        let access_token_clone = access_token.clone();
+        let vehicle_vin_clone = vehicle_vin.to_string();
+        let vehicle_name_clone = vehicle_name.to_string();
+        let command_clone = command.to_string();
+        let region_clone = region.clone();
+
+        tokio::task::spawn(async move {
+            let tesla_client = crate::api::tesla::TeslaClient::new_with_proxy(&region_clone);
+
+            let wake_result = tesla_client.wake_up(&access_token_clone, &vehicle_vin_clone).await
+                .map_err(|e| e.to_string());
+
+            match wake_result {
+                Ok(true) => {
+                    info!("Vehicle woke up successfully, executing command: {}", command_clone);
+
+                    let result = execute_tesla_command(
+                        &tesla_client,
+                        &access_token_clone,
+                        &vehicle_vin_clone,
+                        &vehicle_name_clone,
+                        &command_clone,
+                    ).await;
+
+                    let notification_msg = format!("Tesla command completed: {}", result);
+                    let first_msg = result.clone();
+
+                    crate::proactive::utils::send_notification(
+                        &state_clone,
+                        user_id,
+                        &notification_msg,
+                        "tesla_command_success".to_string(),
+                        Some(first_msg),
+                    ).await;
+
+                    // Spawn climate monitoring for defrost and climate_on commands
+                    if command_clone == "defrost" || command_clone == "climate_on" {
+                        spawn_climate_monitoring_internal(
+                            state_clone.clone(),
+                            user_id,
+                            region_clone.clone(),
+                            access_token_clone.clone(),
+                            vehicle_vin_clone.clone(),
+                            vehicle_name_clone.clone(),
+                        );
+                    }
+                }
+                Ok(false) => {
+                    error!("Vehicle wake-up returned false (unexpected)");
+                    let failure_msg = format!("Your {} couldn't be woken up. Please try again or use the Tesla app.", vehicle_name_clone);
+
+                    crate::proactive::utils::send_notification(
+                        &state_clone,
+                        user_id,
+                        "Tesla wake-up failed unexpectedly",
+                        "tesla_command_error".to_string(),
+                        Some(failure_msg),
+                    ).await;
+                }
+                Err(error_msg) => {
+                    error!("Failed to wake up vehicle: {}", error_msg);
+                    let notification_msg = format!("Tesla wake-up failed: {}", error_msg);
+                    let failure_msg = format!("Your {} couldn't be woken up. Please try again or use the Tesla app.", vehicle_name_clone);
+
+                    crate::proactive::utils::send_notification(
+                        &state_clone,
+                        user_id,
+                        &notification_msg,
+                        "tesla_command_error".to_string(),
+                        Some(failure_msg),
+                    ).await;
+                }
             }
-            Err(e) => {
-                error!("Failed to wake up vehicle: {}", e);
-                return format!("Your {} is asleep. Please wake it up using the Tesla app first.", vehicle_name);
+        });
+
+        return format!(
+            "Your {} is waking up. I'll {} and notify you when it's done (this may take up to 30 seconds).",
+            vehicle_name,
+            match command {
+                "lock" => "lock it",
+                "unlock" => "unlock it",
+                "climate_on" => "start the climate",
+                "climate_off" => "stop the climate",
+                "defrost" => "activate max defrost mode with heated seats and steering wheel",
+                "remote_start" => "activate remote start",
+                _ => "send the command",
             }
-        }
+        );
     }
 
-    // Execute command
+    // Vehicle is already online, execute command immediately
+    let result = execute_tesla_command(&tesla_client, &access_token, vehicle_vin, vehicle_name, command).await;
+
+    // Spawn climate monitoring for defrost and climate_on commands
+    if command == "defrost" || command == "climate_on" {
+        spawn_climate_monitoring(state, user_id, region, access_token, vehicle_vin.to_string(), vehicle_name.to_string());
+    }
+
+    result
+}
+
+async fn execute_tesla_command(
+    tesla_client: &crate::api::tesla::TeslaClient,
+    access_token: &str,
+    vehicle_vin: &str,
+    vehicle_name: &str,
+    command: &str,
+) -> String {
     match command {
         "lock" => {
             match tesla_client.lock_vehicle(&access_token, vehicle_vin).await {
@@ -186,6 +305,12 @@ pub async fn handle_tesla_command(
                 Ok(true) => format!("Climate control stopped in your {}", vehicle_name),
                 Ok(false) => format!("Failed to stop climate in your {}", vehicle_name),
                 Err(e) => format!("Error stopping climate: {}", e),
+            }
+        }
+        "defrost" => {
+            match tesla_client.defrost_vehicle(&access_token, vehicle_vin).await {
+                Ok(msg) => format!("Your {} is now in max defrost mode. {}. The windshield and windows should clear quickly!", vehicle_name, msg),
+                Err(e) => format!("Error activating defrost: {}", e),
             }
         }
         "remote_start" => {
@@ -221,7 +346,138 @@ pub async fn handle_tesla_command(
             }
         }
         _ => {
-            format!("Unknown Tesla command: '{}'. Available commands are: lock, unlock, climate_on, climate_off, remote_start, charge_status", command)
+            format!("Unknown Tesla command: '{}'. Available commands are: lock, unlock, climate_on, climate_off, defrost, remote_start, charge_status", command)
         }
     }
+}
+
+// Helper to spawn climate monitoring (for synchronous path)
+fn spawn_climate_monitoring(
+    state: &Arc<AppState>,
+    user_id: i32,
+    region: String,
+    access_token: String,
+    vehicle_vin: String,
+    vehicle_name: String,
+) {
+    // Check if already monitoring
+    if state.tesla_monitoring_tasks.contains_key(&user_id) {
+        info!("Climate monitoring already in progress for user {}", user_id);
+        return;
+    }
+
+    let state_clone = state.clone();
+    let handle = tokio::spawn(async move {
+        info!("Starting climate monitoring for user {}", user_id);
+        let tesla_client = TeslaClient::new_with_proxy(&region);
+
+        let monitoring_result = tesla_client.monitor_climate_ready(&access_token, &vehicle_vin).await
+            .map_err(|e| e.to_string());
+
+        match monitoring_result {
+            Ok(Some(temp)) => {
+                let msg = format!("Your {} is ready to drive! Cabin temp is {:.1}°C.", vehicle_name, temp);
+                crate::proactive::utils::send_notification(
+                    &state_clone,
+                    user_id,
+                    &msg,
+                    "tesla_ready_to_drive".to_string(),
+                    Some(format!("Your {} is warmed up and ready to drive!", vehicle_name)),
+                ).await;
+            }
+            Ok(None) => {
+                let msg = format!("Your {} should be ready by now (climate running 20+ min). Please check if needed.", vehicle_name);
+                crate::proactive::utils::send_notification(
+                    &state_clone,
+                    user_id,
+                    &msg,
+                    "tesla_ready_timeout".to_string(),
+                    Some("Your Tesla should be warmed up by now.".to_string()),
+                ).await;
+            }
+            Err(error_msg) => {
+                let is_stopped = error_msg.contains("turned off");
+                error!("Climate monitoring error for user {}: {}", user_id, error_msg);
+                if is_stopped {
+                    crate::proactive::utils::send_notification(
+                        &state_clone,
+                        user_id,
+                        "Tesla climate was turned off before reaching target temperature.",
+                        "tesla_climate_stopped".to_string(),
+                        Some("Your Tesla climate was stopped early.".to_string()),
+                    ).await;
+                }
+            }
+        }
+
+        state_clone.tesla_monitoring_tasks.remove(&user_id);
+        info!("Climate monitoring completed for user {}", user_id);
+    });
+
+    state.tesla_monitoring_tasks.insert(user_id, handle);
+}
+
+// Helper for async path (already inside tokio::spawn)
+fn spawn_climate_monitoring_internal(
+    state: Arc<AppState>,
+    user_id: i32,
+    region: String,
+    access_token: String,
+    vehicle_vin: String,
+    vehicle_name: String,
+) {
+    if state.tesla_monitoring_tasks.contains_key(&user_id) {
+        info!("Climate monitoring already in progress for user {}", user_id);
+        return;
+    }
+
+    let state_clone = state.clone();
+    let handle = tokio::spawn(async move {
+        info!("Starting climate monitoring for user {}", user_id);
+        let tesla_client = TeslaClient::new_with_proxy(&region);
+
+        let monitoring_result = tesla_client.monitor_climate_ready(&access_token, &vehicle_vin).await
+            .map_err(|e| e.to_string());
+
+        match monitoring_result {
+            Ok(Some(temp)) => {
+                let msg = format!("Your {} is ready to drive! Cabin temp is {:.1}°C.", vehicle_name, temp);
+                crate::proactive::utils::send_notification(
+                    &state_clone,
+                    user_id,
+                    &msg,
+                    "tesla_ready_to_drive".to_string(),
+                    Some(format!("Your {} is warmed up and ready to drive!", vehicle_name)),
+                ).await;
+            }
+            Ok(None) => {
+                let msg = format!("Your {} should be ready by now (climate running 20+ min). Please check if needed.", vehicle_name);
+                crate::proactive::utils::send_notification(
+                    &state_clone,
+                    user_id,
+                    &msg,
+                    "tesla_ready_timeout".to_string(),
+                    Some("Your Tesla should be warmed up by now.".to_string()),
+                ).await;
+            }
+            Err(error_msg) => {
+                let is_stopped = error_msg.contains("turned off");
+                error!("Climate monitoring error for user {}: {}", user_id, error_msg);
+                if is_stopped {
+                    crate::proactive::utils::send_notification(
+                        &state_clone,
+                        user_id,
+                        "Tesla climate was turned off before reaching target temperature.",
+                        "tesla_climate_stopped".to_string(),
+                        Some("Your Tesla climate was stopped early.".to_string()),
+                    ).await;
+                }
+            }
+        }
+
+        state_clone.tesla_monitoring_tasks.remove(&user_id);
+        info!("Climate monitoring completed for user {}", user_id);
+    });
+
+    state.tesla_monitoring_tasks.insert(user_id, handle);
 }

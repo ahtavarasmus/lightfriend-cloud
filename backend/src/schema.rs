@@ -196,6 +196,10 @@ diesel::table! {
         created_on -> Integer,
         expires_in -> Integer,
         region -> Text,
+        selected_vehicle_vin -> Nullable<Text>,
+        selected_vehicle_name -> Nullable<Text>,
+        selected_vehicle_id -> Nullable<Text>,
+        virtual_key_paired -> Integer,
     }
 }
 

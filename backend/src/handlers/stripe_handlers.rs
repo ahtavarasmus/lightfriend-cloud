@@ -38,7 +38,6 @@ pub struct BuyCreditsRequest {
 #[derive(Deserialize)]
 pub struct SubscriptionCheckoutBody {
     pub subscription_type: SubscriptionType,
-    pub addons: Option<Vec<String>>,
 }
 
 pub async fn create_unified_subscription_checkout(
@@ -153,29 +152,13 @@ pub async fn create_unified_subscription_checkout(
                 .expect("Stripe price ID not found for region")
         },
     };
-    let mut line_items = vec![
+    let line_items = vec![
         stripe::CreateCheckoutSessionLineItems {
             price: Some(base_price_id),
             quantity: Some(1),
             ..Default::default()
         }
     ];
-    let addons = body.addons.clone().unwrap_or_default();
-    for addon in addons {
-        let addon_price_id = match addon.as_str() {
-            "dumbphone_ship" => std::env::var("STRIPE_DUMBPHONE_SHIP_PRICE_ID").expect("STRIPE_DUMBPHONE_SHIP_PRICE_ID not set"),
-            "dumbphone_gift" => std::env::var("STRIPE_DUMBPHONE_GIFT_PRICE_ID").expect("STRIPE_DUMBPHONE_GIFT_PRICE_ID not set"),
-            "ubikey_ship" => std::env::var("STRIPE_UBIKEY_SHIP_PRICE_ID").expect("STRIPE_UBIKEY_SHIP_PRICE_ID not set"),
-            "ubikey_gift" => std::env::var("STRIPE_UBIKEY_GIFT_PRICE_ID").expect("STRIPE_UBIKEY_GIFT_PRICE_ID not set"),
-            "cold_turkey" => continue, // Skip line item for free addon
-            _ => continue, // Unknown addon, skip
-        };
-        line_items.push(stripe::CreateCheckoutSessionLineItems {
-            price: Some(addon_price_id),
-            quantity: Some(1),
-            ..Default::default()
-        });
-    }
     let success_url = format!("{}/billing?subscription=success", domain_url);
     let cancel_url = format!("{}/billing?subscription=canceled", domain_url);
     let mut create_params = CreateCheckoutSession {
@@ -238,16 +221,7 @@ pub async fn create_unified_subscription_checkout(
         }
     }
     create_params.subscription_data = Some(sub_data);
-    // If physical shipping addons are selected, enable shipping address collection
-    if body.addons.as_ref().map_or(false, |a| a.iter().any(|ad| ad.ends_with("_ship"))) {
-        create_params.shipping_address_collection = Some(stripe::CreateCheckoutSessionShippingAddressCollection {
-            allowed_countries: vec![
-                stripe::CreateCheckoutSessionShippingAddressCollectionAllowedCountries::Fi,
-                stripe::CreateCheckoutSessionShippingAddressCollectionAllowedCountries::Nl,
-                stripe::CreateCheckoutSessionShippingAddressCollectionAllowedCountries::Gb,
-            ],
-        });
-    }
+
     let checkout_session = CheckoutSession::create(
         &client,
         create_params,

@@ -21,6 +21,10 @@ pub struct TeslaVehicle {
     pub state: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub charge_state: Option<ChargeState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub climate_state: Option<ClimateState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vehicle_state: Option<VehicleState>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -30,6 +34,27 @@ pub struct ChargeState {
     pub charge_limit_soc: i32,
     pub charging_state: String,
     pub minutes_to_full_charge: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ClimateState {
+    pub inside_temp: Option<f64>,
+    pub outside_temp: Option<f64>,
+    pub driver_temp_setting: Option<f64>,
+    pub passenger_temp_setting: Option<f64>,
+    pub is_climate_on: Option<bool>,
+    pub is_auto_conditioning_on: Option<bool>,
+    pub is_preconditioning: Option<bool>,
+    pub is_front_defroster_on: Option<bool>,
+    pub is_rear_defroster_on: Option<bool>,
+    pub fan_status: Option<i32>,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct VehicleState {
+    pub locked: Option<bool>,
+    pub odometer: Option<f64>,
+    pub car_version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -92,14 +117,26 @@ impl TeslaClient {
             .ok()
             .filter(|s| !s.is_empty());
 
+        // Check if we're in development mode
+        let is_dev = std::env::var("ENVIRONMENT")
+            .unwrap_or_else(|_| "production".to_string())
+            .to_lowercase() == "development";
+
         // Build proxy client if URL is provided
         let proxy_client = proxy_url.as_ref().map(|_| {
-            // Create client that accepts self-signed certificates (for local proxy)
+            // Create client with appropriate certificate validation
+            // In dev: accept self-signed certs for local proxy
+            // In prod: require valid SSL certificates
             // 95 second timeout - slightly higher than proxy's 90s timeout
-            reqwest::Client::builder()
-                .danger_accept_invalid_certs(true)
-                .timeout(Duration::from_secs(95))
-                .build()
+            let mut builder = reqwest::Client::builder()
+                .timeout(Duration::from_secs(95));
+
+            if is_dev {
+                tracing::warn!("Development mode: accepting invalid SSL certificates for Tesla proxy");
+                builder = builder.danger_accept_invalid_certs(true);
+            }
+
+            builder.build()
                 .unwrap_or_else(|_| reqwest::Client::new())
         });
 
@@ -192,14 +229,14 @@ impl TeslaClient {
         Ok(vehicles_response.response)
     }
 
-    // Get vehicle data including charge state
+    // Get vehicle data including charge, climate, and vehicle state
     pub async fn get_vehicle_data(&self, access_token: &str, vehicle_id: &str) -> Result<TeslaVehicle, Box<dyn Error>> {
         let url = format!("{}/api/1/vehicles/{}/vehicle_data", self.base_url, vehicle_id);
 
         let response = self.client
             .get(&url)
             .bearer_auth(access_token)
-            .query(&[("endpoints", "charge_state")])
+            .query(&[("endpoints", "charge_state;climate_state;vehicle_state")])
             .send()
             .await?;
 
@@ -210,6 +247,26 @@ impl TeslaClient {
 
         let vehicle_data: VehicleDataResponse = response.json().await?;
         Ok(vehicle_data.response)
+    }
+
+    // Get vehicle climate data
+    pub async fn get_vehicle_climate_data(&self, access_token: &str, vehicle_id: &str) -> Result<Option<ClimateState>, Box<dyn Error>> {
+        let url = format!("{}/api/1/vehicles/{}/vehicle_data", self.base_url, vehicle_id);
+
+        let response = self.client
+            .get(&url)
+            .bearer_auth(access_token)
+            .query(&[("endpoints", "climate_state")])
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(format!("Tesla API error: {}", error_text).into());
+        }
+
+        let vehicle_data: VehicleDataResponse = response.json().await?;
+        Ok(vehicle_data.response.climate_state)
     }
 
     // Lock vehicle
@@ -235,6 +292,37 @@ impl TeslaClient {
     // Remote start drive
     pub async fn remote_start(&self, access_token: &str, vehicle_id: &str) -> Result<bool, Box<dyn Error>> {
         self.send_command(access_token, vehicle_id, "remote_start_drive").await
+    }
+
+    // Set max defrost mode
+    pub async fn set_max_defrost(&self, access_token: &str, vehicle_id: &str, on: bool) -> Result<bool, Box<dyn Error>> {
+        let body = serde_json::json!({"on": on});
+        self.send_command_with_body(access_token, vehicle_id, "set_preconditioning_max", &body).await
+    }
+
+    // Set seat heater
+    pub async fn set_seat_heater(&self, access_token: &str, vehicle_id: &str, heater: u8, level: u8) -> Result<bool, Box<dyn Error>> {
+        let body = serde_json::json!({"heater": heater, "level": level});
+        self.send_command_with_body(access_token, vehicle_id, "remote_seat_heater_request", &body).await
+    }
+
+    // Set steering wheel heater
+    pub async fn set_steering_wheel_heater(&self, access_token: &str, vehicle_id: &str, on: bool) -> Result<bool, Box<dyn Error>> {
+        let body = serde_json::json!({"on": on});
+        self.send_command_with_body(access_token, vehicle_id, "remote_steering_wheel_heater_request", &body).await
+    }
+
+    // Comprehensive defrost - starts climate, enables max defrost, heats seats and steering wheel
+    pub async fn defrost_vehicle(&self, access_token: &str, vehicle_id: &str) -> Result<String, Box<dyn Error>> {
+        self.start_climate(access_token, vehicle_id).await?;
+
+        self.set_max_defrost(access_token, vehicle_id, true).await?;
+
+        let _ = self.set_seat_heater(access_token, vehicle_id, 0, 3).await;
+        let _ = self.set_seat_heater(access_token, vehicle_id, 1, 3).await;
+        let _ = self.set_steering_wheel_heater(access_token, vehicle_id, true).await;
+
+        Ok("Max defrost activated with heated front seats and steering wheel".to_string())
     }
 
     // Generic command sender
@@ -271,11 +359,47 @@ impl TeslaClient {
         Ok(command_response.response.result)
     }
 
+    // Generic command sender with JSON body
+    async fn send_command_with_body(&self, access_token: &str, vehicle_id: &str, command: &str, body: &serde_json::Value) -> Result<bool, Box<dyn Error>> {
+        let (client, base_url) = if let (Some(proxy_client), Some(proxy_url)) = (&self.proxy_client, &self.proxy_url) {
+            tracing::info!("Sending signed command '{}' via proxy to vehicle {}", command, vehicle_id);
+            (proxy_client, proxy_url.as_str())
+        } else {
+            tracing::warn!("Proxy not available - attempting direct command (will likely fail with Protocol error)");
+            (&self.client, self.base_url.as_str())
+        };
+
+        let url = format!("{}/api/1/vehicles/{}/command/{}", base_url, vehicle_id, command);
+
+        let response = client
+            .post(&url)
+            .bearer_auth(access_token)
+            .json(body)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let error_text = response.text().await?;
+            return Err(format!("Tesla API error for command {}: {}", command, error_text).into());
+        }
+
+        let command_response: CommandResponse = response.json().await?;
+
+        if !command_response.response.result {
+            let reason = command_response.response.reason.unwrap_or_else(|| "Unknown error".to_string());
+            return Err(format!("Command {} failed: {}", command, reason).into());
+        }
+
+        Ok(command_response.response.result)
+    }
+
     // Wake up vehicle (if needed before sending commands)
     pub async fn wake_up(&self, access_token: &str, vehicle_id: &str) -> Result<bool, Box<dyn Error>> {
+        const POLL_INTERVAL_SECS: u64 = 2;
+        const MAX_ATTEMPTS: u32 = 23;
+
         tracing::info!("Waking up vehicle {}", vehicle_id);
 
-        // Use proxy for signed commands if available, otherwise fall back to direct API
         let (client, base_url) = if let (Some(proxy_client), Some(proxy_url)) = (&self.proxy_client, &self.proxy_url) {
             (proxy_client, proxy_url.as_str())
         } else {
@@ -298,28 +422,104 @@ impl TeslaClient {
             return Err(format!("Failed to wake vehicle: {}", error_text).into());
         }
 
-        // Get response as JSON value first to handle different response formats
         let response_text = response.text().await?;
         tracing::debug!("Wake-up response: {}", response_text);
 
         let response_json: serde_json::Value = serde_json::from_str(&response_text)
             .map_err(|e| format!("Failed to parse wake-up response: {}", e))?;
 
-        // Check if vehicle is online
-        let state = response_json["response"]["state"]
+        let initial_state = response_json["response"]["state"]
             .as_str()
             .unwrap_or("unknown");
 
-        tracing::info!("Vehicle state after wake-up: {}", state);
+        tracing::info!("Initial vehicle state after wake command: {}", initial_state);
 
-        // Give vehicle time to fully wake up if it's waking
-        if state == "waking" || state == "asleep" {
-            tracing::info!("Vehicle is waking up, waiting a moment...");
-            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-            // Consider it successful if we initiated wake-up
-            Ok(true)
-        } else {
-            Ok(state == "online")
+        if initial_state == "online" {
+            return Ok(true);
+        }
+
+        tracing::info!("Vehicle is waking up, polling for online state (up to {} seconds)...", POLL_INTERVAL_SECS * MAX_ATTEMPTS as u64);
+
+        for attempt in 1..=MAX_ATTEMPTS {
+            tokio::time::sleep(tokio::time::Duration::from_secs(POLL_INTERVAL_SECS)).await;
+
+            let vehicles = self.get_vehicles(access_token).await?;
+
+            if let Some(vehicle) = vehicles.iter().find(|v| v.id.to_string() == vehicle_id || v.vin == vehicle_id) {
+                tracing::debug!("Poll attempt {}/{}: vehicle state = {}", attempt, MAX_ATTEMPTS, vehicle.state);
+
+                if vehicle.state == "online" {
+                    tracing::info!("Vehicle is now online after {} seconds", (attempt as u64) * POLL_INTERVAL_SECS);
+                    return Ok(true);
+                }
+            }
+        }
+
+        tracing::error!("Vehicle failed to wake up after {} seconds", MAX_ATTEMPTS as u64 * POLL_INTERVAL_SECS);
+        Err("Vehicle wake-up timed out after 46 seconds".into())
+    }
+
+    // Monitor climate until ready to drive
+    pub async fn monitor_climate_ready(
+        &self,
+        access_token: &str,
+        vehicle_id: &str,
+    ) -> Result<Option<f64>, Box<dyn Error>> {
+        const POLL_INTERVAL_SECS: u64 = 60;
+        const MAX_DURATION_SECS: u64 = 20 * 60;
+        const MIN_RUNTIME_SECS: u64 = 5 * 60;
+        const TEMP_THRESHOLD_DIFF: f64 = 3.0;
+        const MIN_COMFORTABLE_TEMP: f64 = 15.0;
+
+        let start_time = std::time::Instant::now();
+        let mut notification_sent = false;
+
+        loop {
+            let elapsed = start_time.elapsed().as_secs();
+
+            if elapsed > MAX_DURATION_SECS {
+                tracing::warn!("Climate monitoring timed out after {} minutes", MAX_DURATION_SECS / 60);
+                return Ok(None);
+            }
+
+            tokio::time::sleep(tokio::time::Duration::from_secs(POLL_INTERVAL_SECS)).await;
+
+            match self.get_vehicle_climate_data(access_token, vehicle_id).await {
+                Ok(Some(climate)) => {
+                    let is_climate_on = climate.is_climate_on.unwrap_or(false);
+
+                    if !is_climate_on {
+                        tracing::info!("Climate was turned off manually");
+                        return Err("Climate turned off before reaching target temperature".into());
+                    }
+
+                    if let (Some(inside_temp), Some(target_temp)) = (climate.inside_temp, climate.driver_temp_setting) {
+                        let elapsed_mins = elapsed / 60;
+                        let temp_diff = target_temp - inside_temp;
+
+                        tracing::debug!("Climate check: inside={}°C, target={}°C, diff={}°C, runtime={}min",
+                            inside_temp, target_temp, temp_diff, elapsed_mins);
+
+                        let temp_is_ready = (temp_diff <= TEMP_THRESHOLD_DIFF) || (inside_temp >= MIN_COMFORTABLE_TEMP);
+                        let runtime_is_ready = elapsed >= MIN_RUNTIME_SECS;
+
+                        if temp_is_ready && runtime_is_ready && !notification_sent {
+                            tracing::info!("Vehicle is ready to drive: temp={}°C (target={}°C) after {} minutes",
+                                inside_temp, target_temp, elapsed_mins);
+                            notification_sent = true;
+                            return Ok(Some(inside_temp));
+                        }
+                    } else {
+                        tracing::warn!("Missing temperature data in climate state");
+                    }
+                }
+                Ok(None) => {
+                    tracing::warn!("No climate state data available");
+                }
+                Err(e) => {
+                    tracing::warn!("Error fetching climate data: {}, continuing...", e);
+                }
+            }
         }
     }
 }

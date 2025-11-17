@@ -1029,6 +1029,86 @@ impl UserRepository {
         Ok(connection)
     }
 
+    pub fn get_selected_vehicle_vin(&self, user_id: i32) -> Result<Option<String>, DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        let vehicle_vin = tesla::table
+            .filter(tesla::user_id.eq(user_id))
+            .filter(tesla::status.eq("active"))
+            .select(tesla::selected_vehicle_vin)
+            .first::<Option<String>>(&mut conn)?;
+
+        Ok(vehicle_vin)
+    }
+
+    pub fn set_selected_vehicle(
+        &self,
+        user_id: i32,
+        vin: String,
+        name: String,
+        vehicle_id: String,
+    ) -> Result<(), DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        diesel::update(tesla::table.filter(tesla::user_id.eq(user_id)))
+            .set((
+                tesla::selected_vehicle_vin.eq(Some(vin)),
+                tesla::selected_vehicle_name.eq(Some(name)),
+                tesla::selected_vehicle_id.eq(Some(vehicle_id)),
+            ))
+            .execute(&mut conn)?;
+
+        Ok(())
+    }
+
+    pub fn get_selected_vehicle_info(&self, user_id: i32) -> Result<Option<(String, String, String)>, DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        let result = tesla::table
+            .filter(tesla::user_id.eq(user_id))
+            .filter(tesla::status.eq("active"))
+            .select((
+                tesla::selected_vehicle_vin,
+                tesla::selected_vehicle_name,
+                tesla::selected_vehicle_id,
+            ))
+            .first::<(Option<String>, Option<String>, Option<String>)>(&mut conn)?;
+
+        match result {
+            (Some(vin), Some(name), Some(id)) => Ok(Some((vin, name, id))),
+            _ => Ok(None),
+        }
+    }
+
+    pub fn mark_tesla_key_paired(&self, user_id: i32, paired: bool) -> Result<(), DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        let paired_value = if paired { 1 } else { 0 };
+
+        diesel::update(tesla::table.filter(tesla::user_id.eq(user_id)))
+            .set(tesla::virtual_key_paired.eq(paired_value))
+            .execute(&mut conn)?;
+
+        Ok(())
+    }
+
+    pub fn get_tesla_key_paired_status(&self, user_id: i32) -> Result<bool, DieselError> {
+        use crate::schema::tesla;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        let paired = tesla::table
+            .filter(tesla::user_id.eq(user_id))
+            .filter(tesla::status.eq("active"))
+            .select(tesla::virtual_key_paired)
+            .first::<i32>(&mut conn)?;
+
+        Ok(paired == 1)
+    }
+
 
     pub fn get_google_tasks_tokens(&self, user_id: i32) -> Result<Option<(String, String)>, DieselError> {
         use crate::schema::google_tasks;

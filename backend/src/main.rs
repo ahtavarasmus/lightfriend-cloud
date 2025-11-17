@@ -148,6 +148,7 @@ pub struct AppState {
     matrix_sync_tasks: Arc<Mutex<HashMap<i32, tokio::task::JoinHandle<()>>>>,
     matrix_invitation_tasks: Arc<Mutex<HashMap<i32, tokio::task::JoinHandle<()>>>>,
     matrix_clients: Arc<Mutex<HashMap<i32, Arc<matrix_sdk::Client>>>>,
+    tesla_monitoring_tasks: Arc<DashMap<i32, tokio::task::JoinHandle<()>>>,
     password_reset_otps: DashMap<String, (String, u64)>, // (email, (otp, expiration))
     phone_verify_limiter: DashMap<String, RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
     phone_verify_verify_limiter: DashMap<String, RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
@@ -265,6 +266,7 @@ async fn main() {
         matrix_sync_tasks,
         matrix_invitation_tasks,
         matrix_clients,
+        tesla_monitoring_tasks: Arc::new(DashMap::new()),
         phone_verify_limiter: DashMap::new(),
         phone_verify_verify_limiter: DashMap::new(),
         password_reset_otps: DashMap::new(),
@@ -389,6 +391,11 @@ async fn main() {
         .route("/api/auth/tesla/connection", delete(tesla_auth::tesla_disconnect))
         .route("/api/auth/tesla/status", get(tesla_auth::tesla_status))
         .route("/api/auth/tesla/virtual-key", get(tesla_auth::get_virtual_key_link))
+        .route("/api/tesla/command", post(tesla_auth::tesla_command))
+        .route("/api/tesla/battery-status", get(tesla_auth::tesla_battery_status))
+        .route("/api/tesla/vehicles", get(tesla_auth::tesla_list_vehicles))
+        .route("/api/tesla/select-vehicle", post(tesla_auth::tesla_select_vehicle))
+        .route("/api/tesla/mark-paired", post(tesla_auth::tesla_mark_paired))
         .route("/api/auth/imap/login", post(imap_auth::imap_login))
         .route("/api/auth/imap/status", get(imap_auth::imap_status))
         .route("/api/auth/imap/disconnect", delete(imap_auth::delete_imap_connection))
