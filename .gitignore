@@ -11,3 +11,5 @@ backend/target/
 .env
 backend/src/api/payloads.md
 second_terminal
+*.pem
+backend/*.pem
