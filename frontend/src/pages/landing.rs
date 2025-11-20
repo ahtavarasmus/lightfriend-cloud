@@ -129,7 +129,11 @@ pub fn landing() -> Html {
                     <div class="hero-header">
                         <h1 class="hero-title">{"Break Free of Smartphones"}</h1>
                         <p class="hero-subtitle">
-                            {"An Assistant so useful you can live with a flip phone"}
+                            {"Doomscrolling is cooked. I'm free."}<br/>
+
+                <Link<Route> to={Route::Home} classes="nav-logo">
+                    {"lightfriend.ai"}
+                </Link<Route>>
                         </p>
                     </div>
                     <div class="hero-cta-group">
@@ -1047,7 +1051,8 @@ pub fn landing() -> Html {
         left: 0;
         width: 100%;
         height: 100vh;
-        background-image: url('/assets/rain.gif');
+        /*background-image: url('/assets/rain.gif');*/
+        background-color: black;
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;
