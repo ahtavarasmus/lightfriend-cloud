@@ -129,7 +129,7 @@ pub fn landing() -> Html {
                     <div class="hero-header">
                         <h1 class="hero-title">{"Break Free of Smartphones"}</h1>
                         <p class="hero-subtitle">
-                            {"Doomscrolling is cooked. I'm free."}<br/>
+                            {"Tools to escape the matrix"}<br/>
 
                 <Link<Route> to={Route::Home} classes="nav-logo">
                     {"lightfriend.ai"}
