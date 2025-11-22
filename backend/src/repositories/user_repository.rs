@@ -439,13 +439,34 @@ impl UserRepository {
 
     pub fn get_all_usage_logs(&self) -> Result<Vec<crate::models::user_models::UsageLog>, DieselError> {
         let mut conn = self.pool.get().expect("Failed to get DB connection");
-        
+
         // Get all usage logs ordered by creation time (newest first)
         let logs = usage_logs::table
             .order_by(usage_logs::created_at.desc())
             .load::<crate::models::user_models::UsageLog>(&mut conn)?;
-        
+
         Ok(logs)
+    }
+
+    pub fn has_recent_notification(&self, user_id: i32, activity_type: &str, seconds_ago: i32) -> Result<bool, DieselError> {
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        let now_secs = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i32;
+        let cutoff_time = now_secs - seconds_ago;
+
+        let count: i64 = usage_logs::table
+            .filter(usage_logs::user_id.eq(user_id))
+            .filter(usage_logs::activity_type.eq(activity_type))
+            .filter(usage_logs::created_at.gt(cutoff_time))
+            .count()
+            .get_result(&mut conn)?;
+
+        Ok(count > 0)
     }
 
         pub fn update_usage_log_timestamps(&self, sid: &str, recharge_threshold_timestamp: Option<i32>, zero_credits_timestamp: Option<i32>) -> Result<(), DieselError> {

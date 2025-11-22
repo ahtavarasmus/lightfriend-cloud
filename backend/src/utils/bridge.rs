@@ -974,8 +974,8 @@ pub async fn handle_bridge_message(
         .unwrap()
         .as_secs() as i32;
 
-    const SHORT_WAIT: u64 = 30;
-    const LONG_WAIT: u64 = 300;
+    const SHORT_WAIT: u64 = 120;  // 2 minutes (increased from 30s)
+    const LONG_WAIT: u64 = 600;   // 10 minutes (increased from 5min)
     const ACTIVITY_THRESHOLD: i32 = 300;  // 5 minutes
 
     println!("last_seen_online: {:#?}", bridge.last_seen_online);
@@ -1023,7 +1023,44 @@ pub async fn handle_bridge_message(
         }
     }
 
-    tracing::info!("No recent read detected; proceeding with message processing");
+    tracing::info!("No recent read detected via read receipt; checking for user replies");
+
+    // Check if user has sent any replies after this message (strongest signal they've seen it)
+    let messages = room.messages(MessagesOptions::backward()).await;
+    if let Ok(messages) = messages {
+        let mut found_user_reply = false;
+        for message_event in messages.chunk {
+            if let Ok(timeline_event) = message_event.raw().deserialize() {
+                if let AnySyncTimelineEvent::MessageLike(msg_event) = timeline_event {
+                    // Check if this message is from the user (not the bridge bot)
+                    if msg_event.sender() == own_user_id {
+                        // Check if user's message came after the trigger message
+                        if msg_event.origin_server_ts().0 > event.origin_server_ts.0 {
+                            tracing::info!("User has sent a reply after this message - skipping notification");
+                            found_user_reply = true;
+
+                            // Update last_seen_online based on user's reply timestamp
+                            let last_seen_online = i32::try_from(msg_event.origin_server_ts().as_secs()).unwrap();
+                            let rows = state.user_repository.update_bridge_last_seen_online(
+                                user_id,
+                                service.as_str(),
+                                last_seen_online,
+                            ).unwrap();
+                            tracing::info!("Updated {} rows for last_seen_online based on reply (user_id: {}, service: {}, value: {})",
+                                rows, user_id, service, last_seen_online);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if found_user_reply {
+            return;
+        }
+    }
+
+    tracing::info!("No user reply detected; proceeding with message processing");
     let sender_prefix = get_sender_prefix(&service);
     if user_id == 1 {
         println!("sender_prefix: {}", sender_prefix);
@@ -1331,12 +1368,27 @@ pub async fn handle_bridge_message(
                 }
             }
             if should_notify {
+                // Check if we recently sent a critical notification to avoid duplicates
+                let notification_type = format!("{}_critical", service);
+                const NOTIFICATION_COOLDOWN: i32 = 600; // 10 minutes
+
+                if let Ok(has_recent) = state.user_repository.has_recent_notification(
+                    user_id,
+                    &notification_type,
+                    NOTIFICATION_COOLDOWN
+                ) {
+                    if has_recent {
+                        tracing::info!("Skipping notification - already sent {} notification within last {} seconds",
+                            notification_type, NOTIFICATION_COOLDOWN);
+                        return;
+                    }
+                }
+
                 let message = message_opt.unwrap_or(format!("Critical {} message found, failed to get content, but you can check your {} to see it.", service_cap, service));
                 let first_message = first_message_opt.unwrap_or(format!("Hey, I found some critical {} message.", service_cap));
-             
+
                 // Spawn a new task for sending critical message notification
                 let state_clone = state.clone();
-                let notification_type = format!("{}_critical", service);
                 tokio::spawn(async move {
                     crate::proactive::utils::send_notification(
                         &state_clone,

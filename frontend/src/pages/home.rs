@@ -4,7 +4,7 @@ use yew_router::prelude::*;
 use crate::Route;
 use yew_router::components::Link;
 use crate::config;
-use web_sys::{window, HtmlInputElement};
+use web_sys::{window, HtmlInputElement, UrlSearchParams};
 use gloo_net::http::Request;
 use serde_json::{json, Value};
 use wasm_bindgen_futures::spawn_local;
@@ -168,8 +168,10 @@ pub fn Home() -> Html {
     let is_expanded = use_state(|| false);
     let active_tab = use_state(|| DashboardTab::Connections);
     let navigator = use_navigator().unwrap();
+    let location = use_location().unwrap();
     let magic_link = use_state(|| None::<String>);
     let magic_error = use_state(|| None::<String>);
+    let success = use_state(|| None::<String>);
     let refetch_profile = {
         let profile_data = profile_data.clone();
         let user_verified = user_verified.clone();
@@ -253,6 +255,32 @@ pub fn Home() -> Html {
             });
         })
     };
+
+    // Check for Tesla success parameter
+    {
+        let success = success.clone();
+        use_effect_with_deps(move |_| {
+            let query = location.query_str();
+            if let Ok(params) = UrlSearchParams::new_with_str(query) {
+                if params.has("tesla") && params.get("tesla").unwrap_or_default() == "success" {
+                    success.set(Some("Tesla account connected successfully!".to_string()));
+
+                    // Clean up the URL after showing the message
+                    if let Some(window) = window() {
+                        if let Ok(history) = window.history() {
+                            let _ = history.replace_state_with_url(
+                                &wasm_bindgen::JsValue::NULL,
+                                "",
+                                Some("/")
+                            );
+                        }
+                    }
+                }
+            }
+            || ()
+        }, ());
+    }
+
     // Single profile fetch effect
     {
         let profile_data = profile_data.clone();
@@ -353,6 +381,22 @@ pub fn Home() -> Html {
             <>
                 <div class="dashboard-container">
                     <h1 class="panel-title">{"Dashboard"}</h1>
+                    {
+                        if let Some(success_msg) = (*success).as_ref() {
+                            html! {
+                                <div class="message success-message">
+                                    <div class="success-content">
+                                        <span class="success-icon">{"✓"}</span>
+                                        <div class="success-text">
+                                            {success_msg}
+                                        </div>
+                                    </div>
+                                </div>
+                            }
+                        } else {
+                            html! {}
+                        }
+                    }
                     <div class="status-section">
                         {
                             if let Some(profile) = (*profile_data).as_ref() {
@@ -653,6 +697,38 @@ pub fn Home() -> Html {
                             align-items: center;
                             justify-content: space-between;
                             margin-bottom: 1.5rem;
+                        }
+                        .success-message {
+                            border: 1px solid rgba(76, 175, 80, 0.3);
+                            background: none !important;
+                            border-radius: 8px;
+                            padding: 1rem;
+                            margin-bottom: 1.5rem;
+                            animation: fadeIn 0.5s ease-in-out;
+                        }
+                        .success-content {
+                            display: flex;
+                            background: none !important;
+                            align-items: center;
+                            gap: 1rem;
+                        }
+                        .success-icon {
+                            background-color: rgba(76, 175, 80, 0.2);
+                            border-radius: 50%;
+                            width: 24px;
+                            height: 24px;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            color: #4CAF50;
+                        }
+                        .success-text {
+                            color: #4CAF50;
+                            font-size: 0.95rem;
+                        }
+                        @keyframes fadeIn {
+                            from { opacity: 0; transform: translateY(-10px); }
+                            to { opacity: 1; transform: translateY(0); }
                         }
                         .credits-info {
                             width: 100%;

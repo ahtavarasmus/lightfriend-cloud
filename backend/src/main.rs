@@ -239,11 +239,12 @@ async fn main() {
     // Tesla OAuth client
     let tesla_client_id = std::env::var("TESLA_CLIENT_ID").unwrap_or_else(|_| "default-tesla-client-id-for-testing".to_string());
     let tesla_client_secret = std::env::var("TESLA_CLIENT_SECRET").unwrap_or_else(|_| "default-tesla-secret-for-testing".to_string());
+    let tesla_redirect_url = std::env::var("TESLA_REDIRECT_URL").unwrap_or_else(|_| server_url.clone());
     let tesla_oauth_client = BasicClient::new(ClientId::new(tesla_client_id))
         .set_client_secret(ClientSecret::new(tesla_client_secret))
         .set_auth_uri(AuthUrl::new("https://auth.tesla.com/oauth2/v3/authorize".to_string()).expect("Invalid auth URL"))
         .set_token_uri(TokenUrl::new("https://fleet-auth.prd.vn.cloud.tesla.com/oauth2/v3/token".to_string()).expect("Invalid token URL"))
-        .set_redirect_uri(RedirectUrl::new(format!("{}/api/auth/tesla/callback", server_url)).expect("Invalid redirect URL"));
+        .set_redirect_uri(RedirectUrl::new(format!("{}/api/auth/tesla/callback", tesla_redirect_url)).expect("Invalid redirect URL"));
 
     let matrix_sync_tasks = Arc::new(Mutex::new(HashMap::new()));
     let matrix_invitation_tasks = Arc::new(Mutex::new(HashMap::new()));

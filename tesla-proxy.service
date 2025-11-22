@@ -7,8 +7,8 @@ After=docker.service
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=%h/lightfriend-cloud/backend
-ExecStart=/usr/bin/docker-compose -f docker-compose.tesla-proxy.yml up -d
-ExecStop=/usr/bin/docker-compose -f docker-compose.tesla-proxy.yml down
+ExecStart=/usr/bin/docker compose -f docker-compose.tesla-proxy.yml up -d
+ExecStop=/usr/bin/docker compose -f docker-compose.tesla-proxy.yml down
 User=%u
 
 [Install]

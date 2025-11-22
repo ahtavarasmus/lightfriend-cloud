@@ -221,7 +221,9 @@ pub async fn tesla_callback(
         .unwrap_or_else(|_| "default-tesla-secret-for-testing".to_string());
     let server_url = std::env::var("SERVER_URL")
         .unwrap_or_else(|_| "http://localhost:3000".to_string());
-    let redirect_uri = format!("{}/api/auth/tesla/callback", server_url);
+    let tesla_redirect_url = std::env::var("TESLA_REDIRECT_URL")
+        .unwrap_or_else(|_| server_url.clone());
+    let redirect_uri = format!("{}/api/auth/tesla/callback", tesla_redirect_url);
 
     // Get the audience URL from env or default to EU region
     let audience_url = std::env::var("TESLA_API_BASE")
@@ -350,12 +352,12 @@ pub async fn tesla_callback(
 
     info!("Tesla OAuth connection successfully established for user {}", user_id);
 
-    // Redirect to frontend
+    // Redirect to frontend home page with success query param
     let frontend_url = std::env::var("FRONTEND_URL")
         .unwrap_or_else(|_| "http://localhost:8080".to_string());
 
     Ok(Redirect::to(&format!(
-        "{}/connections?tesla_connected=true",
+        "{}/?tesla=success",
         frontend_url
     )))
 }
