@@ -159,7 +159,9 @@ impl TeslaClient {
         let partner_token = get_partner_access_token().await?;
 
         // Get domain from environment variable and strip protocol
-        let domain = std::env::var("SERVER_URL")
+        // Use TESLA_REDIRECT_URL for registration (must match the domain used in virtual key pairing)
+        let domain = std::env::var("TESLA_REDIRECT_URL")
+            .or_else(|_| std::env::var("SERVER_URL"))
             .or_else(|_| std::env::var("SERVER_URL_OAUTH"))
             .unwrap_or_else(|_| "localhost:3000".to_string());
 
