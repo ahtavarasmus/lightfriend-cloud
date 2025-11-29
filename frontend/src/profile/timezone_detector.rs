@@ -2,7 +2,6 @@ use yew::prelude::*;
 use web_sys::window;
 use crate::utils::api::Api;
 use wasm_bindgen_futures::spawn_local;
-use wasm_bindgen::JsValue;
 use web_sys::js_sys;
 
 #[derive(Properties, PartialEq, Clone)]

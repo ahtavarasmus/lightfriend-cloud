@@ -1,10 +1,9 @@
 use yew::prelude::*;
 use serde::{Deserialize, Serialize};
-use web_sys::{window, Event};
-use wasm_bindgen::JsCast;
 use crate::utils::api::Api;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::js_sys;
+use gloo_timers::future::TimeoutFuture;
 
 #[derive(Deserialize, Clone, Debug)]
 struct MessengerStatus {
@@ -34,7 +33,9 @@ pub struct MessengerProps {
 pub fn messenger_connect(props: &MessengerProps) -> Html {
     let connection_status = use_state(|| None::<MessengerStatus>);
     let error = use_state(|| None::<String>);
+    let success_message = use_state(|| None::<String>);
     let is_connecting = use_state(|| false);
+    let was_connecting = use_state(|| false);
     let show_disconnect_modal = use_state(|| false);
     let is_disconnecting = use_state(|| false);
     let show_auth_form = use_state(|| false);
@@ -43,9 +44,17 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
     let fetch_status = {
         let connection_status = connection_status.clone();
         let error = error.clone();
+        let success_message = success_message.clone();
+        let was_connecting = was_connecting.clone();
+        let is_connecting = is_connecting.clone();
+        let show_auth_form = show_auth_form.clone();
         Callback::from(move |_| {
             let connection_status = connection_status.clone();
             let error = error.clone();
+            let success_message = success_message.clone();
+            let was_connecting = was_connecting.clone();
+            let is_connecting = is_connecting.clone();
+            let show_auth_form = show_auth_form.clone();
             spawn_local(async move {
                     match Api::get("/api/auth/messenger/status")
                         .send()
@@ -54,6 +63,17 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
                         Ok(response) => {
                             match response.json::<MessengerStatus>().await {
                                 Ok(status) => {
+                                    if *was_connecting && status.connected {
+                                        was_connecting.set(false);
+                                        is_connecting.set(false);
+                                        show_auth_form.set(false);
+                                        success_message.set(Some("Messenger connected successfully!".to_string()));
+                                        let success_message_clone = success_message.clone();
+                                        spawn_local(async move {
+                                            TimeoutFuture::new(3_000).await;
+                                            success_message_clone.set(None);
+                                        });
+                                    }
                                     connection_status.set(Some(status));
                                     error.set(None);
                                 }
@@ -87,17 +107,20 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
 
     let submit_curl = {
         let is_connecting = is_connecting.clone();
+        let was_connecting = was_connecting.clone();
         let error = error.clone();
         let fetch_status = fetch_status.clone();
         let curl_paste = curl_paste.clone();
         let show_auth_form = show_auth_form.clone();
         Callback::from(move |_| {
             let is_connecting = is_connecting.clone();
+            let was_connecting = was_connecting.clone();
             let error = error.clone();
             let fetch_status = fetch_status.clone();
             let curl_paste_value = (*curl_paste).clone();
             let show_auth_form = show_auth_form.clone();
             is_connecting.set(true);
+            was_connecting.set(true);
             spawn_local(async move {
                 let request_body = MessengerLoginRequest {
                     curl_paste: curl_paste_value.clone(),
@@ -210,6 +233,11 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
 
     html! {
         <div class="messenger-connect">
+            if let Some(msg) = (*success_message).as_ref() {
+                <div class="success-banner">
+                    {msg}
+                </div>
+            }
             <div class="service-header">
                 <div class="service-name">
                     <img src="https://upload.wikimedia.org/wikipedia/commons/6/63/Facebook_Messenger_logo_2025.svg" alt="Messenger Logo" />
@@ -678,6 +706,16 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
                         border-radius: 8px;
                         padding: 1rem;
                         margin-top: 1rem;
+                    }
+                    .success-banner {
+                        color: #4CAF50;
+                        background: rgba(76, 175, 80, 0.1);
+                        border: 1px solid rgba(76, 175, 80, 0.3);
+                        border-radius: 8px;
+                        padding: 1rem;
+                        margin-bottom: 1rem;
+                        text-align: center;
+                        font-weight: 500;
                     }
                     .sync-indicator {
                         display: flex;

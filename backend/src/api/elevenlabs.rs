@@ -12,7 +12,6 @@ use crate::AppState;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use chrono::TimeZone;
 use crate::handlers::imap_handlers::{fetch_emails_imap, fetch_single_email_imap};
 
 
@@ -20,17 +19,6 @@ use crate::handlers::imap_handlers::{fetch_emails_imap, fetch_single_email_imap}
 pub struct LocationCallPayload {
     location: String,
     units: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct GmailFetchPayload {
-    user_id: i32,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct WhatsAppFetchPayload {
-    start_time: String,  // RFC3339 format: "2024-03-16T00:00:00Z"
-    end_time: String,    // RFC3339 format: "2024-03-16T00:00:00Z"
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,7 +111,7 @@ pub async fn validate_elevenlabs_secret(
     }
 }
 
-use jiff::{Timestamp, ToSpan};
+use jiff::Timestamp;
 
 pub fn get_offset_with_jiff(timezone_str: &str) -> Result<(i32, i32), jiff::Error> {
     let time = Timestamp::now();
@@ -142,9 +130,7 @@ pub async fn fetch_assistant(
     Json(payload): Json<AssistantPayload>,
 ) -> Result<Json<ConversationInitiationClientData>, (StatusCode, Json<serde_json::Value>)> {
     tracing::debug!("Received assistant request:");
-    let agent_id = payload.agent_id;
     let call_sid = payload.call_sid;
-    let called_number = payload.called_number;
     let caller_number = payload.caller_id;
     println!("caller_number: {}", caller_number);
     let us_voice_id = std::env::var("US_VOICE_ID").expect("US_VOICE_ID not set");
@@ -206,7 +192,7 @@ pub async fn fetch_assistant(
                         conversation_config_override.tts.voice_id = us_voice_id.clone();
                     }
                 }
-            } else if let Err(msg) = crate::utils::usage::check_user_credits(&state, &user, "voice", None).await {
+            } else if let Err(_) = crate::utils::usage::check_user_credits(&state, &user, "voice", None).await {
                 // Send insufficient credits message
                 let error_message = "Insufficient credits to make a voice call".to_string();
                 if let Err(e) = crate::api::twilio_utils::send_conversation_message(
@@ -701,9 +687,7 @@ pub async fn handle_send_sms_tool_call(
             tracing::debug!("Background task: Fetching email attachments for email ID: {}", email_id);
             
             match fetch_single_email_imap(&state_clone, user_clone.id, &email_id).await {
-                Ok(email) => {
-
-                }
+                Ok(_) => {}
                 Err(e) => {
                     error!("Background task: Failed to fetch email: {:?}", e);
                 }
@@ -752,68 +736,6 @@ pub async fn handle_send_sms_tool_call(
     }
 }
 
-pub async fn handle_shazam_tool_call(
-    State(state): State<Arc<AppState>>,
-    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    tracing::info!("Received shazam request with params: {:?}", params);
-    
-    // Get user_id from query params
-    let user_id_str = match params.get("user_id") {
-        Some(id) => {
-            tracing::debug!("Found user_id in params: {}", id);
-            id
-        },
-        None => {
-            tracing::error!("Missing user_id in query parameters");
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(json!({
-                    "error": "Missing user_id query parameter"
-                }))
-            ));
-        }
-    };
-
-    // Convert String to i32
-    let user_id: i32 = match user_id_str.parse() {
-        Ok(id) => {
-            tracing::debug!("Successfully parsed user_id to integer: {}", id);
-            id
-        },
-        Err(e) => {
-            tracing::error!("Failed to parse user_id '{}' to integer: {}", user_id_str, e);
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(json!({
-                    "error": "Invalid user_id format, must be an integer"
-                }))
-            ));
-        }
-    };
-
-    // Spawn a new thread to handle the Shazam call
-    let state_clone = Arc::clone(&state);
-    let user_id_string = user_id.to_string();
-    
-    tracing::info!("Spawning new task for Shazam call for user_id: {}", user_id);
-    tokio::spawn(async move {
-        tracing::debug!("Starting Shazam call for user_id: {}", user_id_string);
-        crate::api::shazam_call::start_call_for_user(
-            axum::extract::Path(user_id_string),
-            axum::extract::State(state_clone),
-        ).await;
-        tracing::debug!("Completed Shazam call task for user_id: {}", user_id);
-    });
-
-    tracing::info!("Successfully initiated Shazam call for user_id: {}", user_id);
-    Ok(Json(json!({
-        "status": "success",
-        "message": "Shazam call initiated",
-        "user_id": user_id
-    })))
-}
-
 pub async fn handle_perplexity_tool_call(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<MessageCallPayload>,
@@ -843,7 +765,7 @@ pub struct FireCrawlCallPayload {
 }
 
 pub async fn handle_firecrawl_tool_call(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     Json(payload): Json<FireCrawlCallPayload>,
 ) -> Json<serde_json::Value> {
     match crate::utils::tool_exec::handle_firecrawl_search(payload.query, 5).await {
@@ -1100,7 +1022,7 @@ pub async fn handle_email_search_tool_call(
                     .unwrap_or(0.1); // Default factor for emails without dates
 
                 // Helper closure for scoring
-                let score_field = |field: &Option<String>, field_name: &str| -> Option<(f64, String)> {
+                let score_field = |field: &Option<String>, _field_name: &str| -> Option<(f64, String)> {
                     field.as_ref().map(|content| {
                         let content_lower = content.to_lowercase();
                         
@@ -1638,7 +1560,7 @@ pub async fn handle_email_send(
                 Ok(_) => {
                     // No need to send success message
                 }
-                Err((status, error_json)) => {
+                Err((_, error_json)) => {
                     let error_msg = format!("Failed to send email: {}", error_json.0.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error"));
                     if let Err(e) = crate::api::twilio_utils::send_conversation_message(
                         &cloned_state,
@@ -1717,7 +1639,7 @@ pub async fn handle_respond_to_email(
         axum::extract::Path(payload.email_id.clone()),
     ).await {
         Ok(details) => details,
-        Err((status, error_json)) => {
+        Err((_, error_json)) => {
             let error_msg = format!("Failed to fetch email details: {}", error_json.0.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error"));
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -1763,7 +1685,7 @@ pub async fn handle_respond_to_email(
                 Ok(_) => {
                     // No need to send success message
                 }
-                Err((status, error_json)) => {
+                Err((_, error_json)) => {
                     let error_msg = format!("Failed to respond to email: {}", error_json.0.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error"));
                     if let Err(e) = crate::api::twilio_utils::send_conversation_message(
                         &cloned_state,
@@ -2464,7 +2386,7 @@ pub async fn handle_directions_tool_call(
     Json(payload): Json<DirectionsCallPayload>,
 ) -> Json<serde_json::Value> {
     // Extract user_id from query parameters
-    let user_id = match params.get("user_id").and_then(|id| id.parse::<i32>().ok()) {
+    let _user_id = match params.get("user_id").and_then(|id| id.parse::<i32>().ok()) {
         Some(id) => id,
         None => {
             return Json(json!({

@@ -1,9 +1,7 @@
 use yew::prelude::*;
-use web_sys::{MouseEvent, window};
-use gloo_net::http::Request;
+use web_sys::{window, MouseEvent};
 use wasm_bindgen_futures::spawn_local;
 use serde_json::json;
-use crate::config;
 use crate::utils::api::Api;
 
 #[derive(Properties, PartialEq)]

@@ -66,8 +66,6 @@ mod utils {
     pub mod matrix_auth;
     pub mod bridge;
     pub mod elevenlabs_prompts;
-    pub mod imap_utils;
-    pub mod qr_utils;
     pub mod self_host_twilio;
     pub mod us_number_pool;
     pub mod subaccount_lifecycle;
@@ -88,13 +86,10 @@ mod tool_call_utils {
     pub mod tesla;
 }
 mod api {
-    pub mod vapi_endpoints;
-    pub mod vapi_dtos;
     pub mod twilio_sms;
     pub mod twilio_utils;
     pub mod elevenlabs;
     pub mod elevenlabs_webhook;
-    pub mod shazam_call;
     pub mod twilio_availability;
     pub mod tesla;
 }
@@ -123,20 +118,17 @@ use handlers::{
     messenger_auth, messenger_handlers, instagram_auth, instagram_handlers,
     tesla_auth,
 };
-use api::{twilio_sms, elevenlabs, elevenlabs_webhook, shazam_call};
+use api::{twilio_sms, elevenlabs, elevenlabs_webhook};
 type DbPool = r2d2::Pool<ConnectionManager<SqliteConnection>>;
 async fn health_check() -> &'static str {
     "OK"
 }
 type GoogleOAuthClient = BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
-type UberOAuthClient = BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
 type TeslaOAuthClient = BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
 pub struct AppState {
     db_pool: DbPool,
     user_core: Arc<UserCore>,
     user_repository: Arc<UserRepository>,
-    sessions: shazam_call::CallSessions,
-    user_calls: shazam_call::UserCallMap,
     google_calendar_oauth_client: GoogleOAuthClient,
     google_tasks_oauth_client: GoogleOAuthClient,
     uber_oauth_client: GoogleOAuthClient,
@@ -146,7 +138,6 @@ pub struct AppState {
     password_reset_limiter: DashMap<String, RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
     password_reset_verify_limiter: DashMap<String, RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
     matrix_sync_tasks: Arc<Mutex<HashMap<i32, tokio::task::JoinHandle<()>>>>,
-    matrix_invitation_tasks: Arc<Mutex<HashMap<i32, tokio::task::JoinHandle<()>>>>,
     matrix_clients: Arc<Mutex<HashMap<i32, Arc<matrix_sdk::Client>>>>,
     tesla_monitoring_tasks: Arc<DashMap<i32, tokio::task::JoinHandle<()>>>,
     password_reset_otps: DashMap<String, (String, u64)>, // (email, (otp, expiration))
@@ -247,14 +238,11 @@ async fn main() {
         .set_redirect_uri(RedirectUrl::new(format!("{}/api/auth/tesla/callback", tesla_redirect_url)).expect("Invalid redirect URL"));
 
     let matrix_sync_tasks = Arc::new(Mutex::new(HashMap::new()));
-    let matrix_invitation_tasks = Arc::new(Mutex::new(HashMap::new()));
     let matrix_clients = Arc::new(Mutex::new(HashMap::new()));
     let state = Arc::new(AppState {
         db_pool: pool,
         user_core: user_core.clone(),
         user_repository: user_repository.clone(),
-        sessions: Arc::new(Mutex::new(HashMap::new())),
-        user_calls: Arc::new(Mutex::new(HashMap::new())),
         google_calendar_oauth_client,
         google_tasks_oauth_client,
         uber_oauth_client,
@@ -265,7 +253,6 @@ async fn main() {
         password_reset_verify_limiter: DashMap::new(),
         phone_verify_otps: DashMap::new(),
         matrix_sync_tasks,
-        matrix_invitation_tasks,
         matrix_clients,
         tesla_monitoring_tasks: Arc::new(DashMap::new()),
         phone_verify_limiter: DashMap::new(),
@@ -289,7 +276,6 @@ async fn main() {
         .route_layer(middleware::from_fn(elevenlabs::validate_elevenlabs_secret));
     let elevenlabs_routes = Router::new()
         .route("/api/call/sms", post(elevenlabs::handle_send_sms_tool_call))
-        .route("/api/call/shazam", get(elevenlabs::handle_shazam_tool_call))
         .route("/api/call/calendar", get(elevenlabs::handle_calendar_tool_call))
         .route("/api/call/calendar/create", get(elevenlabs::handle_calendar_event_creation))
         .route("/api/call/email", get(elevenlabs::handle_email_fetch_tool_call))
@@ -473,9 +459,6 @@ async fn main() {
         .merge(admin_routes)
         .merge(protected_routes)
         .merge(auth_built_in_webhook_routes)
-        .route("/api/twiml", get(shazam_call::twiml_handler).post(shazam_call::twiml_handler))
-        .route("/api/stream", get(shazam_call::stream_handler))
-        .route("/api/listen/{call_sid}", get(shazam_call::listen_handler))
         .route("/.well-known/appspecific/com.tesla.3p.public-key.pem", get(tesla_auth::serve_tesla_public_key))
         .merge(user_twilio_routes) // More specific routes first
         .merge(textbee_routes)
@@ -512,15 +495,6 @@ async fn main() {
     let state_for_scheduler = state.clone();
     tokio::spawn(async move {
         jobs::scheduler::start_scheduler(state_for_scheduler).await;
-    });
-    let shazam_state = crate::api::shazam_call::ShazamState {
-        sessions: state.sessions.clone(),
-        user_calls: state.user_calls.clone(),
-        user_core: state.user_core.clone(),
-        user_repository: state.user_repository.clone(),
-    };
-    tokio::spawn(async move {
-        crate::api::shazam_call::process_audio_with_shazam(Arc::new(shazam_state)).await;
     });
     use tokio::net::TcpListener;
     let port = match std::env::var("ENVIRONMENT").as_deref() {

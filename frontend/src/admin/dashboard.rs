@@ -1,6 +1,5 @@
 use yew::prelude::*;
 use wasm_bindgen::JsCast;
-use web_sys::window;
 use wasm_bindgen::closure::Closure;
 use crate::config;
 use gloo_net::http::Request;

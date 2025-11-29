@@ -980,7 +980,7 @@ pub async fn check_day_digest(state: &Arc<AppState>, user_id: i32) -> Result<(),
             }
 
             // Fetch Telegram messages
-            if let Some(bridge) = state.user_repository.get_bridge(user_id, "telegram")? {
+            if state.user_repository.get_bridge(user_id, "telegram")?.is_some() {
                 match crate::utils::bridge::fetch_bridge_messages("telegram", state, user_id, start_timestamp, true).await {
                     Ok(telegram_messages) => {
                         // Convert TelegramMessage to MessageInfo and add to messages
@@ -1356,7 +1356,7 @@ pub async fn check_evening_digest(state: &Arc<AppState>, user_id: i32) -> Result
             }
 
             // Fetch Telegram messages
-            if let Some(bridge) = state.user_repository.get_bridge(user_id, "telegram")? {
+            if state.user_repository.get_bridge(user_id, "telegram")?.is_some() {
                 match crate::utils::bridge::fetch_bridge_messages("telegram", state, user_id, start_timestamp, true).await {
                     Ok(telegram_messages) => {
                         // Convert Telegram to MessageInfo and add to messages

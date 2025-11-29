@@ -295,8 +295,7 @@ pub async fn elevenlabs_webhook(
                 ));
             }
 
-            let ts = chrono::Utc::now().to_rfc3339();
-            let now_dt   = chrono::Utc::now();
+            let now_dt = chrono::Utc::now();
             let dur_secs = call_duration_secs as u64;   // or adjust to match your type
             let start_dt = now_dt - std::time::Duration::from_secs(dur_secs);
 

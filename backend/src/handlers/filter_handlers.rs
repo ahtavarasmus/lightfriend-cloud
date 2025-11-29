@@ -41,12 +41,6 @@ pub struct KeywordRequest {
 
 // Response DTOs
 #[derive(Serialize)]
-pub struct ConnectedService {
-    service_type: String,
-    identifier: String,  // email address or calendar name
-}
-
-#[derive(Serialize)]
 pub struct WaitingCheckResponse {
     user_id: i32,
     content: String,
@@ -61,20 +55,6 @@ pub struct PrioritySenderResponse {
     service_type: String,
     noti_type: Option<String>,
     noti_mode: String,
-}
-
-#[derive(Serialize)]
-pub struct KeywordResponse {
-    user_id: i32,
-    keyword: String,
-    service_type: String,
-}
-
-#[derive(Serialize)]
-pub struct ImportancePriorityResponse {
-    user_id: i32,
-    threshold: i32,
-    service_type: String,
 }
 
 // Waiting Checks handlers

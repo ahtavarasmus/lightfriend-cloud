@@ -1,5 +1,5 @@
 use yew::prelude::*;
-use chrono::{Utc, TimeZone, Duration};
+use chrono::{Utc, TimeZone};
 use crate::profile::billing_models::format_timestamp;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

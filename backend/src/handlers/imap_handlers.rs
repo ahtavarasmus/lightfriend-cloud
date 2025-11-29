@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use imap;
 use native_tls::TlsConnector;
-use mail_parser::{self, MimeHeaders};
+use mail_parser;
 use crate::{
     AppState,
     handlers::auth_middleware::AuthUser,
@@ -51,13 +51,6 @@ pub struct ImapEmailPreview {
     pub snippet: Option<String>,
     pub body: Option<String>,
     pub is_read: bool,
-}
-#[derive(Debug, Serialize)]
-pub struct EmailAttachment {
-    pub filename: Option<String>,
-    pub content_type: String,
-    pub url: String,
-    pub size: usize,
 }
 #[derive(Debug, Serialize)]
 pub struct ImapEmail {

@@ -4,9 +4,8 @@ use axum::{
     extract::State,
     http::StatusCode,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
-
 
 use crate::repositories::user_repository::UsageDataPoint;
 use crate::{
@@ -20,57 +19,10 @@ pub struct AutoTopupSettings {
     pub amount: Option<f32>,
 }
 
-
-#[derive(Serialize)]
-pub struct SubscriptionInfo {
-    id: String,
-    status: String,
-    next_bill_date: i32,
-    stage: String,
-    is_scheduled_to_cancel: Option<bool>,
-}
-
-#[derive(Serialize)]
-pub struct AutoTopupInfo {
-    pub active: bool,
-    pub amount: String,
-}
-
-#[derive(Serialize)]
-pub struct ProfileResponse {
-    id: i32,
-    email: String,
-    phone_number: String,
-    nickname: Option<String>,
-    verified: bool,
-    time_to_live: i32,
-    time_to_delete: bool,
-    credits: f32,
-    notify: bool,
-    info: Option<String>,
-    preferred_number: Option<String>,
-    auto_topup: Option<AutoTopupInfo>,
-    credits_left: f32,
-    discount: bool,
-}
 #[derive(Deserialize)]
 pub struct UsageDataRequest {
-    pub user_id: i32,
     pub from: i32,
 }
-
-
-#[derive(Deserialize)]
-pub struct CreateCheckoutRequest {
-    pub amount: u64, // amount in cents
-}
-
-#[derive(Serialize)]
-pub struct CheckoutResponse {
-    pub session_id: String,
-}
-
-
 
 pub async fn get_usage_data(
     State(state): State<Arc<AppState>>,

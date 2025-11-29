@@ -469,9 +469,9 @@ pub async fn resync_instagram(
             StatusCode::INTERNAL_SERVER_ERROR,
             AxumJson(json!({"error": "Invalid room ID format"})),
         ))?;
-    if let Some(room) = client.get_room(&room_id) {
+    if client.get_room(&room_id).is_some() {
         tracing::debug!("📱 Setting up Matrix event handler");
-     
+
         // Set up event handler for the Matrix client
         client.add_event_handler(|ev: SyncRoomMessageEvent| async move {
             match ev {

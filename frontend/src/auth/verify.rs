@@ -4,7 +4,7 @@ use crate::Route;
 use crate::config;
 use crate::utils::api::Api;
 use crate::profile::billing_models::UserProfile;
-use web_sys::{window, HtmlInputElement};
+use web_sys::HtmlInputElement;
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 

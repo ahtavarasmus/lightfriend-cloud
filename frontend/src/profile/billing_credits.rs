@@ -1,9 +1,7 @@
 use yew::prelude::*;
-use web_sys::{HtmlInputElement, window};
-use crate::config;
+use web_sys::HtmlInputElement;
 use crate::utils::api::Api;
 use serde_json::{Value, json};
-use gloo_net::http::Request;
 use crate::profile::billing_models::{ // Import from the new file
     AutoTopupSettings,
     BuyCreditsRequest,

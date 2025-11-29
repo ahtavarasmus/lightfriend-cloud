@@ -53,8 +53,6 @@ const LIGHTFRIEND_LIST_NAME: &str = "lightfriend";
 
 #[derive(Debug)]
 pub enum TaskError {
-    NoConnection,
-    TokenError(String),
     ApiError(String),
     ParseError(String),
 }
@@ -62,8 +60,6 @@ pub enum TaskError {
 impl std::fmt::Display for TaskError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TaskError::NoConnection => write!(f, "No active Google Tasks connection"),
-            TaskError::TokenError(msg) => write!(f, "Token error: {}", msg),
             TaskError::ApiError(msg) => write!(f, "API error: {}", msg),
             TaskError::ParseError(msg) => write!(f, "Parse error: {}", msg),
         }

@@ -22,7 +22,7 @@ pub struct BridgeRoom {
 }
 
 
-use chrono::{DateTime, TimeZone};
+use chrono::DateTime;
 use chrono_tz::Tz;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -299,7 +299,7 @@ pub async fn get_triggering_message_in_room(
                             MessageType::Video(v) => ("video", if v.body.is_empty() { "📎 VIDEO".into() } else { v.body }),
                             MessageType::File(f) => ("file", if f.body.is_empty() { "📎 FILE".into() } else { f.body }),
                             MessageType::Audio(a) => ("audio", if a.body.is_empty() { "📎 AUDIO".into() } else { a.body }),
-                            MessageType::Location(l) => ("location", "📍 LOCATION".into()),
+                            MessageType::Location(_l) => ("location", "📍 LOCATION".into()),
                             MessageType::Emote(t) => ("emote", t.body),
                             _ => continue,
                         };
@@ -400,7 +400,7 @@ pub async fn get_latest_sent_message_in_room(
                         MessageType::Video(v) => ("video", if v.body.is_empty() { "📎 VIDEO".into() } else { v.body }),
                         MessageType::File(f) => ("file", if f.body.is_empty() { "📎 FILE".into() } else { f.body }),
                         MessageType::Audio(a) => ("audio", if a.body.is_empty() { "📎 AUDIO".into() } else { a.body }),
-                        MessageType::Location(l) => ("location", "📍 LOCATION".into()),
+                        MessageType::Location(_l) => ("location", "📍 LOCATION".into()),
                         MessageType::Emote(t) => ("emote", t.body),
                         _ => continue,
                     };
@@ -554,7 +554,7 @@ pub async fn fetch_bridge_messages(
                                     MessageType::Video(v) => ("video", if v.body.is_empty() { "📎 VIDEO".into() } else { v.body }),
                                     MessageType::File(f) => ("file", if f.body.is_empty() { "📎 FILE".into() } else { f.body }),
                                     MessageType::Audio(a) => ("audio", if a.body.is_empty() { "📎 AUDIO".into() } else { a.body }),
-                                    MessageType::Location(l) => ("location", "📍 LOCATION".into()),
+                                    MessageType::Location(_) => ("location", "📍 LOCATION".into()),
                                     MessageType::Emote(t) => ("emote", t.body),
                                     _ => continue,
                                 };
@@ -661,12 +661,7 @@ pub async fn send_bridge_message(
         // Now consume the response to get the bytes
         let bytes = resp.bytes().await?;
         let size = bytes.len();
-        // ── 2. Filename (best-effort) ────────────────────────────────────────────
-        let filename = std::path::Path::new(&url)
-            .file_name()
-            .and_then(|p| p.to_str())
-            .unwrap_or("file");
-        // ── 3. Upload to the homeserver ──────────────────────────────────────────
+        // ── 2. Upload to the homeserver ──────────────────────────────────────────
         let upload_resp = client
             .media()
             .upload(&mime, bytes.to_vec(), None)
@@ -750,7 +745,7 @@ async fn fetch_messages_from_room(
                     MessageType::Video(v) => ("video", if v.body.is_empty() { "📎 VIDEO".into() } else { v.body }),
                     MessageType::File(f) => ("file", if f.body.is_empty() { "📎 FILE".into() } else { f.body }),
                     MessageType::Audio(a) => ("audio", if a.body.is_empty() { "📎 AUDIO".into() } else { a.body }),
-                    MessageType::Location(l) => ("location", "📍 LOCATION".into()), // Location has no body field
+                    MessageType::Location(_) => ("location", "📍 LOCATION".into()), // Location has no body field
                     MessageType::Emote(t) => ("emote", t.body),
                     _ => return None,
                 };

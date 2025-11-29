@@ -1,12 +1,8 @@
 use yew::prelude::*;
-use gloo_net::http::Request;
 use crate::utils::api::Api;
 use log::info;
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{window, Event, HtmlInputElement};
-use wasm_bindgen::JsCast;
 use serde::{Deserialize, Serialize};
-use crate::config;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CriticalResponse {

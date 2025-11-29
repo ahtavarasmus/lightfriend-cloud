@@ -1,16 +1,12 @@
 use yew::prelude::*;
-use yew_router::prelude::*;
+use yew_router::prelude::Link;
 use crate::Route;
-use yew_router::components::Link;
 use serde_json::json;
-use web_sys::{window, HtmlSelectElement};
+use web_sys::window;
 use wasm_bindgen_futures;
 use serde_json::Value;
-use crate::config;
-use gloo_net::http::Request;
 use serde::Deserialize;
 use std::collections::HashMap;
-use wasm_bindgen::JsCast;
 use crate::utils::api::Api;
 #[derive(Deserialize, Clone)]
 struct UserProfile {

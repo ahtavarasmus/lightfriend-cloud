@@ -1,10 +1,7 @@
 use yew::prelude::*;
-use gloo_net::http::Request;
 use log::info;
 use wasm_bindgen_futures::spawn_local;
-use web_sys::window;
 use serde::{Deserialize, Serialize};
-use crate::config;
 use crate::utils::api::Api;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DigestsResponse {

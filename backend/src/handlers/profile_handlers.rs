@@ -44,15 +44,6 @@ pub struct UpdateProfileRequest {
 }
 
 #[derive(Serialize)]
-pub struct SubscriptionInfo {
-    id: String,
-    status: String,
-    next_bill_date: i32,
-    stage: String,
-    is_scheduled_to_cancel: Option<bool>,
-}
-
-#[derive(Serialize)]
 pub struct ProfileResponse {
     id: i32,
     email: String,

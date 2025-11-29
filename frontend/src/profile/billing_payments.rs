@@ -1,9 +1,5 @@
 use yew::prelude::*;
-use web_sys::window;
-use gloo_net::http::Request;
 use serde::Deserialize;
-use wasm_bindgen_futures::spawn_local;
-use gloo_timers::future::TimeoutFuture;
 
 #[derive(Properties, PartialEq, Clone)]
 pub struct PaymentMethodButtonProps {

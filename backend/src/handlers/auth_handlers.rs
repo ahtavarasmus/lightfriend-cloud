@@ -16,20 +16,10 @@ use std::num::NonZeroU32;
 use governor::{Quota, RateLimiter};
 use std::env;
 
-#[derive(Deserialize)]
-pub struct BroadcastMessageRequest {
-    message: String,
-}
-
 use crate::{
     handlers::auth_dtos::{LoginRequest, RegisterRequest, UserResponse, NewUser},
     AppState
 };
-
-#[derive(Deserialize)]
-pub struct ErrorResponse {
-    error: String,
-}
 
 #[derive(Deserialize)]
 pub struct PasswordResetRequest {
@@ -602,7 +592,7 @@ pub async fn register(
    
     // Get the newly created user to get their ID
     let user = state.user_core.find_by_email(&reg_req.email)
-        .map_err(|e| (
+        .map_err(|_e| (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(json!({"error": format!("Failed to retrieve user")}))
         ))?
@@ -631,7 +621,7 @@ pub async fn register(
 }
 
 pub async fn refresh_token(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     headers: reqwest::header::HeaderMap,
 ) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
     let refresh_token = match headers.get("cookie") {
@@ -677,7 +667,7 @@ pub async fn refresh_token(
 }
 
 pub async fn testing_handler(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     auth_user: AuthUser,
     Json(params): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {

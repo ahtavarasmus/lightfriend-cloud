@@ -1,7 +1,7 @@
 use yew::prelude::*;
 use yew_router::prelude::*;
 use log::{info, Level};
-use web_sys::{window, MouseEvent};
+use web_sys::MouseEvent;
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 mod config;
@@ -77,7 +77,6 @@ use pages::{
     home::Home,
     faq::Faq,
     supported_countries::SupportedCountries,
-    home::is_logged_in,
     termsprivacy::{TermsAndConditions, PrivacyPolicy},
     money::UnifiedPricing,
     self_host_instructions::SelfHostInstructions,

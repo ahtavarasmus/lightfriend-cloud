@@ -13,7 +13,7 @@ use matrix_sdk::{
         OwnedRoomId, OwnedUserId, 
     },
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 use std::sync::Arc;
 use anyhow::{anyhow, Result};
@@ -186,7 +186,7 @@ async fn connect_telegram(
             options.limit = matrix_sdk::ruma::UInt::new(5).unwrap(); // Reduced from 10 to 5
             let messages = room.messages(options).await?;
             
-            for (i, msg) in messages.chunk.iter().enumerate() {
+            for (_i, msg) in messages.chunk.iter().enumerate() {
                 let raw_event = msg.raw();
                 if let Ok(event) = raw_event.deserialize() {
                     if event.sender() == bot_user_id {
@@ -565,7 +565,7 @@ pub async fn resync_telegram(
         // Set up event handler for the Matrix client
         client.add_event_handler(|ev: SyncRoomMessageEvent| async move {
             match ev {
-                SyncRoomMessageEvent::Original(msg) => {
+                SyncRoomMessageEvent::Original(_msg) => {
                     // Add more specific message handling logic here if needed
                 },
                 SyncRoomMessageEvent::Redacted(_) => {

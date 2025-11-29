@@ -178,17 +178,6 @@ pub fn get_send_chat_message_tool() -> openai_api_rs::v1::chat_completion::Tool 
     }
 }
 
-#[derive(Deserialize)]
-pub struct BridgeSendArgs {
-    pub chat_name: String,
-    pub message: String,
-}
-
-#[derive(Deserialize)]
-pub struct BridgeTimeFrame {
-    pub start: String,
-}
-
 use axum::http::{StatusCode, HeaderName};
 use crate::models::user_models::User;
 use crate::api::twilio_sms::TwilioResponse;

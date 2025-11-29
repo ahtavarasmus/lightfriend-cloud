@@ -221,8 +221,8 @@ pub async fn google_tasks_callback(
 
     let frontend_url = std::env::var("FRONTEND_URL")
         .expect("FRONTEND_URL must be set");
-    tracing::info!("Redirecting to frontend root: {}", frontend_url);
-    Ok(Redirect::to(&frontend_url))
+    tracing::info!("Redirecting to frontend with success: {}", frontend_url);
+    Ok(Redirect::to(&format!("{}/?google_tasks=success", frontend_url)))
 }
 
 pub async fn delete_google_tasks_connection(

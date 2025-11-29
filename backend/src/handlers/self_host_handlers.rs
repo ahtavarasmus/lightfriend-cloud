@@ -3,10 +3,9 @@ use std::sync::Arc;
 use crate::handlers::auth_middleware::AuthUser;
 use axum::{
     Json,
-    extract::{State, Query, Form},
-    http::{StatusCode,HeaderName},
+    extract::{State, Query},
+    http::StatusCode,
 };
-use reqwest::Client;
 
 use serde_json::json;
 use std::env;
@@ -33,72 +32,6 @@ pub struct UpdateTwilioCredsRequest {
 pub struct UpdateTextBeeCredsRequest {
     textbee_api_key: String,
     textbee_device_id: String,
-}
-
-// UsageTriggerData struct (fields matching Twilio's form params)
-#[derive(Deserialize)]
-pub struct UsageTriggerData {
-    pub account_sid: String,      // AccountSid
-    pub triggered_by: String,     // TriggeredBy
-    pub current_value: String,    // CurrentValue
-    // Add more if needed, e.g., pub idempotency_token: Option<String>,
-}
-
-pub async fn handle_usage_trigger(
-    State(state): State<Arc<AppState>>,
-    Form(payload): Form<UsageTriggerData>,
-) -> (StatusCode, [(HeaderName, &'static str); 1], Json<serde_json::Value>) {
-    // Get main creds
-    let main_account_sid = match std::env::var("TWILIO_ACCOUNT_SID") {
-        Ok(sid) => sid,
-        Err(_) => {
-            tracing::error!("Missing TWILIO_ACCOUNT_SID");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                [(axum::http::header::CONTENT_TYPE, "application/json")],
-                Json(json!({"error": "Internal server error"})),
-            );
-        }
-    };
-    let main_auth_token = match std::env::var("TWILIO_AUTH_TOKEN") {
-        Ok(token) => token,
-        Err(_) => {
-            tracing::error!("Missing TWILIO_AUTH_TOKEN");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                [(axum::http::header::CONTENT_TYPE, "application/json")],
-                Json(json!({"error": "Internal server error"})),
-            );
-        }
-    };
-
-    let client = Client::new();
-
-    // Suspend the subaccount
-    match crate::utils::self_host_twilio::suspend_subaccount(
-        &payload.account_sid,
-        &main_account_sid,
-        &main_auth_token,
-        &client,
-    ).await {
-        Ok(()) => {
-            // Optionally update DB status to 'suspended'
-            if let Err(e) = state.user_core.update_subaccount_status(&payload.account_sid, "suspended") {
-                tracing::error!("Failed to update DB status for subaccount {}: {}", payload.account_sid, e);
-                // Don't fail the response; log and continue
-            }
-            tracing::info!("Suspended subaccount {} due to usage trigger (current: ${})", payload.account_sid, payload.current_value);
-            (
-                StatusCode::OK,
-                [(axum::http::header::CONTENT_TYPE, "application/json")],
-                Json(json!({"status": "ok"})),
-            )
-        }
-        Err((status, body)) => {
-            tracing::error!("Failed to suspend subaccount {}: {:?}", payload.account_sid, body);
-            (status, [(axum::http::header::CONTENT_TYPE, "application/json")], body)
-        }
-    }
 }
 
 pub async fn update_twilio_phone(
@@ -241,7 +174,7 @@ struct DnsHost {
 }
 
 pub async fn setup_subdomain(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     auth_user: AuthUser,
     Json(req): Json<SetupSubdomainRequest>,
 ) -> Result<Json<SetupSubdomainResponse>, (StatusCode, Json<serde_json::Value>)> {
@@ -661,7 +594,7 @@ pub async fn create_temp_tinfoil_api_key(
 ) -> Result<String, Box<dyn std::error::Error + Send + Sync>> {
     let admin_key = env::var("TINFOIL_ADMIN_API_KEY")
         .map_err(|_| "TINFOIL_ADMIN_API_KEY must be set")?;
-    let client = Client::new();
+    let client = reqwest::Client::new();
 
     let dt = DateTime::<Utc>::from_timestamp(end_timestamp, 0)
         .ok_or("Invalid timestamp")?;

@@ -21,27 +21,6 @@ thread_local! {
 
 use openai_api_rs::v1::chat_completion;
 
-
-#[derive(Debug, Deserialize, Clone)]
-pub struct TwilioMessageResponse {
-    pub sid: String,
-    pub conversation_sid: String,
-    pub body: String,
-    pub author: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct TwilioMessagesResponse {
-    messages: Vec<TwilioMessageResponse>,
-}
-
-#[derive(Deserialize, Clone)]
-pub struct MediaItem {
-    pub content_type: String,
-    pub url: String,
-    pub sid: String,
-}
-
 #[derive(Deserialize, Clone)]
 pub struct TwilioWebhookPayload {
     #[serde(rename = "From")]
@@ -468,7 +447,7 @@ pub async fn process_sms(
 
     // Create FixedOffset for chrono
     let user_timezone = chrono::FixedOffset::east_opt(offset_seconds)
-        .unwrap_or_else(|| chrono::FixedOffset::east(0)); // Fallback to UTC if invalid
+        .unwrap_or_else(|| chrono::FixedOffset::east_opt(0).unwrap()); // Fallback to UTC if invalid
 
     // Format current time in RFC3339 for the user's timezone
     let formatted_time = Utc::now().with_timezone(&user_timezone).to_rfc3339();
@@ -538,7 +517,7 @@ Never use markdown, HTML, or any special formatting characters in responses. Ret
         }
     }
 
-    fn generate_tool_summary(tool_calls: &Vec<chat_completion::ToolCall>, msg: &crate::models::user_models::MessageHistory) -> String {
+    fn generate_tool_summary(tool_calls: &Vec<chat_completion::ToolCall>, _msg: &crate::models::user_models::MessageHistory) -> String {
         // Logic to summarize: iterate over tool_calls, extract action names/queries, and perhaps fetch related tool responses if stored
         // For simplicity, assume you have access to tool response data via another query or embedded in msg
         let mut summary = String::new();
@@ -1034,7 +1013,7 @@ Never use markdown, HTML, or any special formatting characters in responses. Ret
                             );
                             tool_answers.insert(tool_call_id, response);
                         },
-                        Err(e) => {
+                        Err(_) => {
                             tool_answers.insert(tool_call_id, "Failed to fetch the complete email".to_string());
                         }
                     }

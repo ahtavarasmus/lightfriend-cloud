@@ -14,7 +14,7 @@ use oauth2::{
     Scope,
     TokenResponse,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::json;
 use uuid::Uuid;
 use time::OffsetDateTime;
@@ -30,13 +30,6 @@ pub struct AuthRequest {
 #[derive(Deserialize)]
 pub struct LoginRequest {
     calendar_access_type: Option<String>,
-}
-
-#[derive(Serialize)]
-pub struct TokenInfo {
-    access_token: String,
-    refresh_token: Option<String>,
-    expires_in: u64,
 }
 
 pub async fn google_login(
@@ -176,78 +169,6 @@ pub async fn delete_google_calendar_connection(
     }
 }
 
-pub async fn refresh_google_token(
-    State(state): State<Arc<AppState>>,
-    auth_user: AuthUser,
-) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    tracing::info!("Received request to refresh Google Calendar token");
-
-    // Get the stored tokens
-    let tokens = match state.user_repository.get_google_calendar_tokens(auth_user.user_id) {
-        Ok(Some(tokens)) => tokens,
-        Ok(None) => {
-            tracing::error!("No Google Calendar connection found for user {}", auth_user.user_id);
-            return Err((
-                StatusCode::NOT_FOUND,
-                Json(json!({"error": "No Google Calendar connection found"}))
-            ));
-        },
-        Err(e) => {
-            tracing::error!("Database error while fetching tokens: {}", e);
-            return Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": "Internal server error"}))
-            ));
-        },
-    };
-
-    let (_, refresh_token) = tokens;
-
-    // Create HTTP client
-    let http_client = reqwest::ClientBuilder::new()
-        .redirect(reqwest::redirect::Policy::none())
-        .build()
-        .expect("Client should build");
-
-    // Refresh the token
-    let token_result = state
-        .google_calendar_oauth_client
-        .exchange_refresh_token(&oauth2::RefreshToken::new(refresh_token))
-        .request_async(&http_client)
-        .await
-        .map_err(|e| {
-            tracing::error!("Token refresh failed: {}", e);
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({"error": format!("Token refresh failed: {}", e)}))
-            )
-        })?;
-
-    let new_access_token = token_result.access_token().secret();
-    let expires_in = token_result.expires_in()
-        .unwrap_or_default()
-        .as_secs() as i32;
-
-    // Update the access token in the database
-    if let Err(e) = state.user_repository.update_google_calendar_access_token(
-        auth_user.user_id,
-        new_access_token,
-        expires_in,
-    ) {
-        tracing::error!("Failed to update access token: {}", e);
-        return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({"error": "Failed to update access token"}))
-        ));
-    }
-
-    tracing::info!("Successfully refreshed Google Calendar token for user {}", auth_user.user_id);
-    Ok(Json(json!({
-        "message": "Token refreshed successfully",
-        "expires_in": expires_in
-    })))
-}
-
 pub async fn google_callback(
     State(state): State<Arc<AppState>>,
     Query(query): Query<AuthRequest>,
@@ -296,7 +217,7 @@ pub async fn google_callback(
         },
     };
 
-    let stored_session_key = record.data.get("session_key")
+    let _stored_session_key = record.data.get("session_key")
         .and_then(|v| v.as_str().map(String::from))
         .ok_or_else(|| {
             tracing::error!("Session key missing from session record ");
@@ -394,7 +315,7 @@ pub async fn google_callback(
 
     let frontend_url = std::env::var("FRONTEND_URL")
         .expect("FRONTEND_URL must be set");
-    tracing::info!("Redirecting to frontend root: {}", frontend_url);
-    Ok(Redirect::to(&frontend_url))
+    tracing::info!("Redirecting to frontend with success: {}", frontend_url);
+    Ok(Redirect::to(&format!("{}/?google_calendar=success", frontend_url)))
 }
 

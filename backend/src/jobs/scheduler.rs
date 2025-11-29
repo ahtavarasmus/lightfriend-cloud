@@ -603,7 +603,7 @@ pub async fn start_scheduler(state: Arc<AppState>) {
                     Ok(events) => {
                         debug!("🗓️ Calendar check: Found {} events for user {}", events.len(), user.id);
                         for event in events {
-                            if let (Some(reminders), Some(start_time)) = (&event.reminders, event.start.date_time) {
+                            if let (Some(reminders), Some(_start_time)) = (&event.reminders, event.start.date_time) {
                                 for reminder in &reminders.overrides {
                                     let reminder_key = format!("{}_{}", event.id, reminder.minutes);
                                     

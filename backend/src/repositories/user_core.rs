@@ -15,7 +15,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use rand::{thread_rng, Rng};
 use hex;
 
-sql_function! {
+define_sql_function! {
     fn lower(x: Text) -> Text;
 }
 

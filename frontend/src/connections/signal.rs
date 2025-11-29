@@ -1,10 +1,9 @@
 use yew::prelude::*;
-use serde::{Deserialize, Serialize};
-use web_sys::{window, Event};
-use wasm_bindgen::JsCast;
+use serde::Deserialize;
 use crate::utils::api::Api;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::js_sys;
+use gloo_timers::future::TimeoutFuture;
 #[derive(Deserialize, Clone, Debug)]
 struct SignalStatus {
     connected: bool,
@@ -26,15 +25,25 @@ pub fn signal_connect(props: &SignalProps) -> Html {
     let connection_status = use_state(|| None::<SignalStatus>);
     let qr_link = use_state(|| None::<String>);
     let error = use_state(|| None::<String>);
+    let success_message = use_state(|| None::<String>);
     let is_connecting = use_state(|| false);
+    let was_connecting = use_state(|| false);
     let show_disconnect_modal = use_state(|| false);
     let is_disconnecting = use_state(|| false);
     let fetch_status = {
         let connection_status = connection_status.clone();
         let error = error.clone();
+        let success_message = success_message.clone();
+        let was_connecting = was_connecting.clone();
+        let is_connecting = is_connecting.clone();
+        let qr_link = qr_link.clone();
         Callback::from(move |_| {
             let connection_status = connection_status.clone();
             let error = error.clone();
+            let success_message = success_message.clone();
+            let was_connecting = was_connecting.clone();
+            let is_connecting = is_connecting.clone();
+            let qr_link = qr_link.clone();
             spawn_local(async move {
                 match Api::get("/api/auth/signal/status")
                     .send()
@@ -43,6 +52,17 @@ pub fn signal_connect(props: &SignalProps) -> Html {
                     Ok(response) => {
                         match response.json::<SignalStatus>().await {
                             Ok(status) => {
+                                if *was_connecting && status.connected {
+                                    was_connecting.set(false);
+                                    is_connecting.set(false);
+                                    qr_link.set(None);
+                                    success_message.set(Some("Signal connected successfully!".to_string()));
+                                    let success_message_clone = success_message.clone();
+                                    spawn_local(async move {
+                                        TimeoutFuture::new(3_000).await;
+                                        success_message_clone.set(None);
+                                    });
+                                }
                                 connection_status.set(Some(status));
                                 error.set(None);
                             }
@@ -67,15 +87,18 @@ pub fn signal_connect(props: &SignalProps) -> Html {
     }
     let start_connection = {
         let is_connecting = is_connecting.clone();
+        let was_connecting = was_connecting.clone();
         let qr_link = qr_link.clone();
         let error = error.clone();
         let fetch_status = fetch_status.clone();
         Callback::from(move |_| {
             let is_connecting = is_connecting.clone();
+            let was_connecting = was_connecting.clone();
             let qr_link = qr_link.clone();
             let error = error.clone();
             let fetch_status = fetch_status.clone();
             is_connecting.set(true);
+            was_connecting.set(true);
             spawn_local(async move {
                 match Api::get("/api/auth/signal/connect")
                     .send()
@@ -187,6 +210,11 @@ pub fn signal_connect(props: &SignalProps) -> Html {
     };
     html! {
         <div class="signal-connect">
+            if let Some(msg) = (*success_message).as_ref() {
+                <div class="success-banner">
+                    {msg}
+                </div>
+            }
             <div class="service-header">
                 <div class="service-name">
                     <img src="https://upload.wikimedia.org/wikipedia/commons/6/60/Signal-Logo-Ultramarine_(2024).svg" alt="Signal Logo" />
@@ -634,6 +662,16 @@ pub fn signal_connect(props: &SignalProps) -> Html {
                         border-radius: 8px;
                         padding: 1rem;
                         margin-top: 1rem;
+                    }
+                    .success-banner {
+                        color: #4CAF50;
+                        background: rgba(76, 175, 80, 0.1);
+                        border: 1px solid rgba(76, 175, 80, 0.3);
+                        border-radius: 8px;
+                        padding: 1rem;
+                        margin-bottom: 1rem;
+                        text-align: center;
+                        font-weight: 500;
                     }
                     .sync-indicator {
                         display: flex;

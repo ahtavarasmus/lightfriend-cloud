@@ -6,9 +6,6 @@ pub mod login {
     use yew_router::prelude::*;
     use crate::Route;
     use crate::config;
-    use gloo_timers::callback::Timeout;
-    use wasm_bindgen_futures::spawn_local;
-    use yew_hooks::prelude::*;
     use gloo_console::log;
     #[derive(Serialize)]
     pub struct LoginRequest {

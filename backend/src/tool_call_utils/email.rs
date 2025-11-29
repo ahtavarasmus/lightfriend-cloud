@@ -204,9 +204,9 @@ pub async fn handle_send_email(
                 axum::Json(email_request)
             ).await {
                 Ok(_) => {
-                    // No need to send success message 
+                    // No need to send success message
                 }
-                Err((status, error_json)) => {
+                Err((_, error_json)) => {
                     let error_msg = format!("Failed to send email: {}", error_json.0.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error"));
                     if let Err(e) = crate::api::twilio_utils::send_conversation_message(
                         &cloned_state,
@@ -254,7 +254,7 @@ pub async fn handle_fetch_emails(state: &Arc<AppState>, user_id: i32) -> String 
             if let Some(emails) = response.get("emails") {
                 if let Some(emails_array) = emails.as_array() {
                     let mut parts: Vec<String> = Vec::new();
-                    for (i, email) in emails_array.iter().rev().take(5).enumerate() {
+                    for email in emails_array.iter().rev().take(5) {
                         let id = email.get("id").and_then(|i| i.as_str()).unwrap_or("Unknown ID");
                         let subject = email.get("subject").and_then(|s| s.as_str()).unwrap_or("No subject");
                         let from = email.get("from").and_then(|f| f.as_str()).unwrap_or("Unknown sender");
@@ -330,7 +330,7 @@ pub async fn handle_respond_to_email(
         axum::extract::Path(args.email_id.clone()),
     ).await {
         Ok(details) => details,
-        Err((status, error_json)) => {
+        Err((_, error_json)) => {
             let error_msg = format!("Failed to fetch email details: {}", error_json.0.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error"));
             if let Err(e) = crate::api::twilio_utils::send_conversation_message(
                 state,
@@ -409,7 +409,7 @@ pub async fn handle_respond_to_email(
                 Ok(_) => {
                     // No need to send success message
                 }
-                Err((status, error_json)) => {
+                Err((_, error_json)) => {
                     let error_msg = format!("Failed to respond to email: {}", error_json.0.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error"));
                     if let Err(e) = crate::api::twilio_utils::send_conversation_message(
                         &cloned_state,

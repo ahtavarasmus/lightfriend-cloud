@@ -3,7 +3,6 @@ use web_sys::MouseEvent;
 use yew::{Children, Properties};
 use gloo_timers::callback::Timeout;
 use wasm_bindgen::prelude::*;
-use std::rc::Rc;
 
 #[derive(Clone, PartialEq)]
 struct ChatMessage {

@@ -72,7 +72,7 @@ pub async fn test_fetch_messages(
         return Err("Signal is not connected".to_string());
     }
     // Get a wider time range - last 24 hours
-    let now = Utc::now().naive_utc();
+    let now = Utc::now();
     let start_time = (now - chrono::Duration::hours(24)).timestamp();
     let end_time = now.timestamp()+1000000;
     tracing::info!("Fetching messages from {} to {}", start_time, end_time);
@@ -85,10 +85,6 @@ pub async fn test_fetch_messages(
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
            
             for msg in messages.iter() {
-                let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(msg.timestamp, 0)
-                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|| "unknown time".to_string());
-                   
                 let message_type_icon = match msg.message_type.as_str() {
                     "text" => "💬",
                     "notice" => "📢",

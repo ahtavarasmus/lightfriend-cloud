@@ -94,13 +94,16 @@ struct GoogleCalendarEvent {
 
 #[derive(Debug, Serialize)]
 struct GoogleDateTime {
-    dateTime: String,
-    timeZone: String,
+    #[serde(rename = "dateTime")]
+    date_time: String,
+    #[serde(rename = "timeZone")]
+    time_zone: String,
 }
 
 #[derive(Debug, Serialize)]
 struct Reminders {
-    useDefault: bool,
+    #[serde(rename = "useDefault")]
+    use_default: bool,
     overrides: Vec<CreateEventReminderOverride>,
 }
 
@@ -253,16 +256,16 @@ pub async fn create_calendar_event(
         summary: event_request.summary,
         description: event_request.description,
         start: GoogleDateTime {
-            dateTime: event_request.start_time.to_rfc3339(),
-            timeZone: "UTC".to_string(),
+            date_time: event_request.start_time.to_rfc3339(),
+            time_zone: "UTC".to_string(),
         },
         end: GoogleDateTime {
-            dateTime: end_time.to_rfc3339(),
-            timeZone: "UTC".to_string(),
+            date_time: end_time.to_rfc3339(),
+            time_zone: "UTC".to_string(),
         },
         reminders: if event_request.add_notification {
             Some(Reminders {
-                useDefault: false,
+                use_default: false,
                 overrides: vec![
                     CreateEventReminderOverride {
                         method: "popup".to_string(),

@@ -90,7 +90,7 @@ pub struct CreateTaskArgs {
 pub async fn handle_fetch_tasks(
     state: &Arc<AppState>,
     user_id: i32,
-    args: &str,
+    _args: &str,
 ) -> String {
     match crate::handlers::google_tasks::get_tasks(state, user_id).await {
         Ok(Json(response)) => {
@@ -176,7 +176,7 @@ pub async fn handle_create_task(
     };
 
     match crate::handlers::google_tasks::create_task(state, user_id, &task_request).await {
-        Ok(Json(response)) => "Task created successfully.".to_string(),
+        Ok(Json(_)) => "Task created successfully.".to_string(),
         Err((status, Json(error))) => {
             let error_message = match status {
                 axum::http::StatusCode::UNAUTHORIZED => "You need to connect your Google Tasks first. Visit the website to set it up.",

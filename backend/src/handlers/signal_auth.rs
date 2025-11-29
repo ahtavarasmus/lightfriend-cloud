@@ -13,7 +13,7 @@ use matrix_sdk::{
         OwnedRoomId, OwnedUserId,
     },
 };
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::json;
 use std::sync::Arc;
 use anyhow::{anyhow, Result};
@@ -550,7 +550,7 @@ pub async fn resync_signal(
         // Set up event handler for the Matrix client
         client.add_event_handler(|ev: SyncRoomMessageEvent| async move {
             match ev {
-                SyncRoomMessageEvent::Original(msg) => {
+                SyncRoomMessageEvent::Original(_msg) => {
                     // Add more specific message handling logic here if needed
                 },
                 SyncRoomMessageEvent::Redacted(_) => {

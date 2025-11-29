@@ -1,7 +1,6 @@
 use reqwest::Client;
 use std::env;
 use serde::{Deserialize, Serialize};
-use std::error::Error;
 use std::sync::Arc;
 use axum::{
     extract::{Json, State},
@@ -102,12 +101,6 @@ pub struct OutboundSmsPrice {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct OutboundPrice {
     pub number_type: String,
-    pub base_price: String,
-    pub current_price: String,
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct Price {
     pub base_price: String,
     pub current_price: String,
 }

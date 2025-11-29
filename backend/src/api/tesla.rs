@@ -465,7 +465,6 @@ impl TeslaClient {
         const MIN_COMFORTABLE_TEMP: f64 = 15.0;
 
         let start_time = std::time::Instant::now();
-        let mut notification_sent = false;
 
         loop {
             let elapsed = start_time.elapsed().as_secs();
@@ -496,10 +495,9 @@ impl TeslaClient {
                         let temp_is_ready = (temp_diff <= TEMP_THRESHOLD_DIFF) || (inside_temp >= MIN_COMFORTABLE_TEMP);
                         let runtime_is_ready = elapsed >= MIN_RUNTIME_SECS;
 
-                        if temp_is_ready && runtime_is_ready && !notification_sent {
+                        if temp_is_ready && runtime_is_ready {
                             tracing::info!("Vehicle is ready to drive: temp={}°C (target={}°C) after {} minutes",
                                 inside_temp, target_temp, elapsed_mins);
-                            notification_sent = true;
                             return Ok(Some(inside_temp));
                         }
                     } else {

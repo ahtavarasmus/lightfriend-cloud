@@ -3,7 +3,6 @@ use serde_json::json;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{MouseEvent, Event, HtmlInputElement};
 use crate::utils::api::Api;
-use crate::config;
 #[derive(Properties, PartialEq)]
 pub struct CalendarProps {
     pub user_id: i32,

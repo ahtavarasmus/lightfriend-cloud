@@ -1,5 +1,5 @@
 use yew::prelude::*;
-use web_sys::{MouseEvent, Event, HtmlSelectElement, EventTarget};
+use web_sys::{MouseEvent, Event, HtmlSelectElement};
 use wasm_bindgen::JsCast;
 use serde_json::json;
 use wasm_bindgen_futures::spawn_local;

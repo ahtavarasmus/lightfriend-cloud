@@ -1,14 +1,11 @@
 use yew::prelude::*;
-use web_sys::window;
-use web_sys::{MouseEvent, Window, Navigator, Clipboard};
+use web_sys::{window, MouseEvent};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
-use gloo_net::http::Request;
 use wasm_bindgen_futures::spawn_local;
 use serde_json::json;
 use gloo_timers::future::TimeoutFuture;
 use web_sys::js_sys::eval;
-use crate::config;
 use crate::utils::api::Api;
 
 #[derive(Properties, PartialEq)]

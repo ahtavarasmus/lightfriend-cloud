@@ -694,7 +694,10 @@ pub async fn get_virtual_key_link(
     }
 
     // Get domain from environment variable and strip protocol
-    let domain = std::env::var("SERVER_URL")
+    // Use TESLA_REDIRECT_URL for the virtual key pairing link (e.g., lightfriend.app)
+    // This should be the domain registered with Tesla for key pairing
+    let domain = std::env::var("TESLA_REDIRECT_URL")
+        .or_else(|_| std::env::var("SERVER_URL"))
         .or_else(|_| std::env::var("SERVER_URL_OAUTH"))
         .unwrap_or_else(|_| "localhost:3000".to_string());
 

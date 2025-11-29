@@ -226,7 +226,7 @@ impl FromRequestParts<Arc<AppState>> for Tier3SelfHostedUser {
 
 // Add this new middleware function for admin routes
 pub async fn require_admin(
-    State(state): State<Arc<AppState>>,
+    State(_state): State<Arc<AppState>>,
     auth_user: AuthUser,
     request: Request<Body>,
     next: Next,

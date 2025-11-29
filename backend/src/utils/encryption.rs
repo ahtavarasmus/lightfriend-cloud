@@ -90,12 +90,3 @@ pub fn decrypt(encrypted: &str) -> Result<String, EncryptionError> {
         .map_err(|e| EncryptionError::Utf8Error(e.to_string()))
 }
 
-// For backward compatibility with existing code
-pub fn encrypt_token(token: &str) -> Result<String, EncryptionError> {
-    encrypt(token)
-}
-
-pub fn decrypt_token(encrypted: &str) -> Result<String, EncryptionError> {
-    decrypt(encrypted)
-}
-

@@ -1,9 +1,7 @@
 use yew::prelude::*;
-use web_sys::{MouseEvent};
+use web_sys::MouseEvent;
 use wasm_bindgen_futures::spawn_local;
 use wasm_bindgen::JsValue;
-use crate::config;
-use gloo_net::http::Request;
 use web_sys::UrlSearchParams;
 use crate::utils::api::Api;
 use crate::connections::whatsapp::WhatsappConnect;

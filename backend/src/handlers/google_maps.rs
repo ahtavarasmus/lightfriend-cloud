@@ -2,7 +2,7 @@ use axum::{
     http::StatusCode,
     response::Json as AxumJson,
 };
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{json, Value};
 use reqwest;
 
@@ -11,13 +11,6 @@ pub struct DirectionsRequest {
     pub start_address: String,
     pub end_address: String,
     pub mode: String, // e.g., "driving", "walking", "transit" (for public transport), "bicycling"
-}
-
-#[derive(Debug, Serialize)]
-pub struct DirectionsResponse {
-    pub instructions: Vec<String>,
-    pub duration: String,
-    pub distance: String,
 }
 
 pub async fn handle_get_directions(
@@ -122,8 +115,8 @@ pub async fn handle_get_directions(
     }
 
     // Extract total duration and distance from the first leg
-    let mut duration = String::from("Unknown");
-    let mut distance = String::from("Unknown");
+    let duration;
+    let distance;
     let mut instructions: Vec<String> = Vec::new();
     println!("works?: {:#?}", directions_response);
 

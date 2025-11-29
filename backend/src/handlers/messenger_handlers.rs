@@ -72,7 +72,7 @@ pub async fn test_fetch_messenger_messages(
         return Err("Messenger is not connected".to_string());
     }
     // Get a wider time range - last 24 hours
-    let now = Utc::now().naive_utc();
+    let now = Utc::now();
     let start_time = (now - chrono::Duration::hours(24)).timestamp();
     let end_time = now.timestamp()+1000000;
     tracing::info!("Fetching messages from {} to {}", start_time, end_time);
@@ -85,17 +85,12 @@ pub async fn test_fetch_messenger_messages(
             println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
           
             for msg in messages.iter() {
-                let datetime = chrono::DateTime::<chrono::Utc>::from_timestamp(msg.timestamp, 0)
-                    .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-                    .unwrap_or_else(|| "unknown time".to_string());
-                  
                 let message_type_icon = match msg.message_type.as_str() {
                     "text" => "💬",
                     "notice" => "📢",
                     "image" => "🖼️",
                     "video" => "🎥",
                     "file" => "📎",
-                    "audio" => "🔊",
                     "audio" => "🔊",
                     "location" => "📍",
                     "emote" => "🎭",
@@ -185,27 +180,6 @@ pub async fn search_messenger_rooms_handler(
         Err(e) => {
             tracing::error!("Failed to search Messenger rooms: {}", e);
             Err(format!("Failed to search Messenger rooms: {}", e))
-        }
-    }
-}
-use axum::{
-    extract::Query,
-    http::StatusCode,
-};
-#[derive(Deserialize)]
-pub struct SearchQuery {
-    search: String,
-}
-pub async fn search_messenger_rooms_handler_query(
-    State(state): State<std::sync::Arc<AppState>>,
-    auth_user: AuthUser,
-    Query(params): Query<SearchQuery>,
-) -> Result<Json<Vec<BridgeRoom>>, StatusCode> {
-    match crate::utils::bridge::search_bridge_rooms("messenger", &state, auth_user.user_id, &params.search).await {
-        Ok(rooms) => Ok(Json(rooms)),
-        Err(e) => {
-            tracing::error!("Failed to search Messenger rooms for user {}: {}", auth_user.user_id, e);
-            Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }

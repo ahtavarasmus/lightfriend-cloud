@@ -528,7 +528,7 @@ pub async fn delete_twilio_message(
     user: &User,
 ) -> Result<(), Box<dyn Error>> {
     tracing::debug!("deleting incoming message");
-    let is_self_hosted = user.sub_tier == Some("self_hosted".to_string());
+    let _is_self_hosted = user.sub_tier == Some("self_hosted".to_string());
 
     let (account_sid, auth_token) = if user.phone_number.starts_with("+1") ||
        user.phone_number.starts_with("+358") ||

@@ -1,4 +1,4 @@
-use web_sys::{window, js_sys, HtmlInputElement, KeyboardEvent, InputEvent, Event};
+use web_sys::js_sys;
 use wasm_bindgen::JsValue;
 
 pub(crate) fn format_timestamp(ts: i32) -> String {

@@ -199,8 +199,8 @@ pub async fn uber_callback(
     tracing::info!("Successfully stored Uber connection for user {}", user_id);
     let frontend_url = std::env::var("FRONTEND_URL")
         .expect("FRONTEND_URL must be set");
-    tracing::info!("Redirecting to frontend root: {}", frontend_url);
-    Ok(Redirect::to(&frontend_url))
+    tracing::info!("Redirecting to frontend with success: {}", frontend_url);
+    Ok(Redirect::to(&format!("{}/?uber=success", frontend_url)))
 }
 
 
@@ -234,7 +234,6 @@ pub async fn uber_disconnect(
         .build()
         .expect("Client should build");
 
-    let uber_url_oauth = std::env::var("UBER_API_URL").expect("UBER_API_URL must be set");
     let uber_client_id = std::env::var("UBER_CLIENT_ID").expect("UBER_CLIENT_ID must be set");
     let uber_client_secret = std::env::var("UBER_CLIENT_SECRET").expect("UBER_CLIENT_SECRET must be set");
     // Revoke access token

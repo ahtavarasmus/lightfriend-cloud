@@ -1,11 +1,7 @@
 use yew::prelude::*;
-use gloo_net::http::Request;
-use log::{info, Level};
+use log::info;
 use wasm_bindgen_futures::spawn_local;
-use web_sys::{window, js_sys, HtmlInputElement, KeyboardEvent, InputEvent, Event};
-use wasm_bindgen::JsValue;
-use crate::config;
-use serde_json::json;
+use web_sys::{HtmlInputElement, KeyboardEvent, InputEvent, Event};
 use serde::{Deserialize, Serialize};
 use crate::utils::api::Api;
 use gloo_timers::future::TimeoutFuture;

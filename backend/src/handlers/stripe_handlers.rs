@@ -41,7 +41,7 @@ pub struct SubscriptionCheckoutBody {
 
 pub async fn create_unified_subscription_checkout(
     State(state): State<Arc<AppState>>,
-    auth_user: AuthUser,
+    _auth_user: AuthUser,
     Path(user_id): Path<i32>,
     Json(body): Json<SubscriptionCheckoutBody>,
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
@@ -619,7 +619,7 @@ pub async fn stripe_webhook(
                             Json(json!({"error": "Invalid subscription data"})),
                         )
                     })?;
-                let new_sub_info = extract_subscription_info(&base_price);
+                let _new_sub_info = extract_subscription_info(&base_price);
                 // Always check and cancel existing subscriptions when a new one is created
                 if event.type_ == stripe::EventType::CustomerSubscriptionCreated {
                     tracing::info!("New subscription created, checking for existing subscriptions to cancel");
@@ -723,7 +723,7 @@ pub async fn stripe_webhook(
                     return Ok(StatusCode::OK);
                 };
                 // Extract subscription info to determine the tier
-                let new_sub_info = extract_subscription_info(&base_price);
+                let _new_sub_info = extract_subscription_info(&base_price);
                 if let Ok(Some(user)) = state.user_repository.find_by_stripe_customer_id(&customer_id.as_str()) {
                     let items = &subscription.items.data;
                     let base_price = match base_price_id(items) {
@@ -733,15 +733,15 @@ pub async fn stripe_webhook(
                             return Ok(StatusCode::OK);
                         }
                     };
-                    let sub_info = extract_subscription_info(&base_price);
+                    let _sub_info = extract_subscription_info(&base_price);
                     if let Some(price_id) = subscription.items.data.first()
                         .and_then(|item| item.price.as_ref())
                         .map(|price| price.id.to_string())
                     {
                         // Extract subscription info (both country and tier)
                         let sub_info = extract_subscription_info(&price_id);
-                        let is_sentinel_price_id = is_sentinel_price_id(&price_id);
-                        let is_digital_detox = is_digital_detox_subscription(&subscription.items.data);
+                        let _is_sentinel_price_id = is_sentinel_price_id(&price_id);
+                        let _is_digital_detox = is_digital_detox_subscription(&subscription.items.data);
                       
                         // Update subscription country
                         if let Err(e) = state.user_core.update_sub_country(user.id, sub_info.country) {
@@ -1155,6 +1155,7 @@ pub async fn fetch_next_billing_date(
         "next_billing_date": latest_end_date
     })))
 }
+
 pub async fn automatic_charge(
     State(state): State<Arc<AppState>>,
     Path(user_id): Path<i32>,

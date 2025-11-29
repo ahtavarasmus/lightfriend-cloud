@@ -1,6 +1,4 @@
 use yew::prelude::*;
-use yew_router::components::Link;
-use crate::Route;
 
 #[function_component(Changelog)]
 pub fn changelog() -> Html {

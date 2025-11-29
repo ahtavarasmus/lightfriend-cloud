@@ -131,7 +131,7 @@ pub async fn handle_fetch_calendar_events(
                 let empty_vec = Vec::new();
                 let events_array = events.as_array().unwrap_or(&empty_vec);
                 let mut formatted_events = Vec::new();
-                let today = Local::today().with_timezone(&FixedOffset::west_opt(7 * 3600).unwrap()).naive_local();
+                let today = Local::now().date_naive();
 
                 // Collect events with their start times for sorting
                 let mut events_with_time: Vec<(Value, Option<DateTime<FixedOffset>>)> = events_array.iter().map(|event| {
@@ -282,7 +282,7 @@ pub async fn handle_create_calendar_event(
                 })
             ));
         }
-        Err((status, error_json)) => {
+        Err((_, error_json)) => {
             let error_msg = format!("Failed to create calendar event: {}", error_json.0.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error"));
             if let Err(e) = crate::api::twilio_utils::send_conversation_message(
                 &state,

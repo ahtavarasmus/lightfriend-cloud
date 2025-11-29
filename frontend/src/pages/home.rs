@@ -229,14 +229,26 @@ pub fn Home() -> Html {
         })
     };
 
-    // Check for Tesla success parameter
+    // Check for OAuth success parameters
     {
         let success = success.clone();
         use_effect_with_deps(move |_| {
             let query = location.query_str();
             if let Ok(params) = UrlSearchParams::new_with_str(query) {
-                if params.has("tesla") && params.get("tesla").unwrap_or_default() == "success" {
-                    success.set(Some("Tesla account connected successfully!".to_string()));
+                let success_message = if params.get("tesla").as_deref() == Some("success") {
+                    Some("Tesla account connected successfully!")
+                } else if params.get("uber").as_deref() == Some("success") {
+                    Some("Uber account connected successfully!")
+                } else if params.get("google_calendar").as_deref() == Some("success") {
+                    Some("Google Calendar connected successfully!")
+                } else if params.get("google_tasks").as_deref() == Some("success") {
+                    Some("Google Tasks connected successfully!")
+                } else {
+                    None
+                };
+
+                if let Some(message) = success_message {
+                    success.set(Some(message.to_string()));
 
                     // Clean up the URL after showing the message
                     if let Some(window) = window() {

@@ -2,6 +2,7 @@ use yew::prelude::*;
 use web_sys::{MouseEvent, HtmlInputElement, Event};
 use serde_json::json;
 use wasm_bindgen_futures::spawn_local;
+use gloo_timers::future::TimeoutFuture;
 use crate::utils::api::Api;
 #[derive(Properties, PartialEq)]
 pub struct EmailProps {
@@ -12,6 +13,7 @@ pub struct EmailProps {
 #[function_component(EmailConnect)]
 pub fn email_connect(props: &EmailProps) -> Html {
     let error = use_state(|| None::<String>);
+    let success_message = use_state(|| None::<String>);
     let imap_connected = use_state(|| false);
     let imap_email = use_state(|| String::new());
     let imap_password = use_state(|| String::new());
@@ -113,6 +115,7 @@ pub fn email_connect(props: &EmailProps) -> Html {
         let imap_port_value = imap_port.clone();
         let imap_connected = imap_connected.clone();
         let error = error.clone();
+        let success_message = success_message.clone();
         let imap_email_setter = imap_email.clone();
         let imap_password_setter = imap_password.clone();
         let connected_email = connected_email.clone();
@@ -124,6 +127,7 @@ pub fn email_connect(props: &EmailProps) -> Html {
             let port = (*imap_port_value).clone();
             let imap_connected = imap_connected.clone();
             let error = error.clone();
+            let success_message = success_message.clone();
             let imap_email_setter = imap_email_setter.clone();
             let imap_password_setter = imap_password_setter.clone();
             let connected_email = connected_email.clone();
@@ -150,6 +154,13 @@ pub fn email_connect(props: &EmailProps) -> Html {
                             imap_password_setter.set(String::new());
                             error.set(None);
                             connected_email.set(Some(email));
+                            success_message.set(Some("Email connected successfully!".to_string()));
+                            // Auto-hide success message after 3 seconds
+                            let success_message_clone = success_message.clone();
+                            spawn_local(async move {
+                                TimeoutFuture::new(3_000).await;
+                                success_message_clone.set(None);
+                            });
                         } else {
                             if let Ok(error_data) = response.json::<serde_json::Value>().await {
                                 if let Some(error_msg) = error_data.get("error").and_then(|e| e.as_str()) {
@@ -205,6 +216,11 @@ pub fn email_connect(props: &EmailProps) -> Html {
     };
     html! {
         <div class="service-item">
+            if let Some(msg) = (*success_message).as_ref() {
+                <div class="success-banner">
+                    {msg}
+                </div>
+            }
             <div class="service-header">
                 <div class="service-name">
                     <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Cpath fill='%234285f4' d='M48 64C21.5 64 0 85.5 0 112c0 15.1 7.1 29.3 19.2 38.4L236.8 313.6c11.4 8.5 27 8.5 38.4 0L492.8 150.4c12.1-9.1 19.2-23.3 19.2-38.4c0-26.5-21.5-48-48-48H48zM0 176V384c0 35.3 28.7 64 64 64H448c35.3 0 64-28.7 64-64V176L294.4 339.2c-22.8 17.1-54 17.1-76.8 0L0 176z'/%3E%3C/svg%3E" alt="IMAP" width="24" height="24"/>
@@ -773,6 +789,16 @@ pub fn email_connect(props: &EmailProps) -> Html {
                         border-radius: 8px;
                         padding: 1rem;
                         margin-top: 1rem;
+                    }
+                    .success-banner {
+                        color: #4CAF50;
+                        background: rgba(76, 175, 80, 0.1);
+                        border: 1px solid rgba(76, 175, 80, 0.3);
+                        border-radius: 8px;
+                        padding: 1rem;
+                        margin-bottom: 1rem;
+                        text-align: center;
+                        font-weight: 500;
                     }
                     .sync-indicator {
                         display: flex;

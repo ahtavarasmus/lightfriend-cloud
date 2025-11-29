@@ -1,6 +1,6 @@
 use yew::prelude::*;
-use log::{info, Level};
-use web_sys::{HtmlInputElement, window};
+use log::info;
+use web_sys::HtmlInputElement;
 use yew_router::prelude::*;
 use crate::Route;
 use crate::utils::api::Api;

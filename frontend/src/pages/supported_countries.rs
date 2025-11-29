@@ -2,7 +2,7 @@ use yew::prelude::*;
 use std::collections::HashMap;
 use wasm_bindgen_futures;
 use web_sys::{Request, RequestInit, window, Response};
-use wasm_bindgen::{JsCast, JsValue};
+use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use serde_json::Value;
 

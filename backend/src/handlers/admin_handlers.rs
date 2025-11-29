@@ -283,7 +283,7 @@ pub async fn broadcast_email(
                     success_count += 1;
                     tracing::info!("Successfully sent email to {}", user.email);
                 }
-                Err((status, err)) => {
+                Err((_status, err)) => {
                     failed_count += 1;
                     let error_msg = format!("Failed to send to {}: {:?}", user.email, err);
                     tracing::error!("{}", error_msg);
@@ -313,10 +313,10 @@ pub async fn broadcast_email(
 
 pub async fn broadcast_message(
     State(state): State<Arc<AppState>>,
-    Json(request): Json<BroadcastMessageRequest>,
+    Json(_request): Json<BroadcastMessageRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
 
-    let users = state.user_core.get_all_users().map_err(|e| (
+    let _users = state.user_core.get_all_users().map_err(|e| (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(json!({"error": format!("Database error: {}", e)}))
     ))?;
@@ -328,55 +328,6 @@ pub async fn broadcast_message(
     })))
 
 }
-
-
-#[derive(Debug)]
-enum BroadcastError {
-    ConversationError(String),
-    MessageSendError(String),
-}
-
-impl std::fmt::Display for BroadcastError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            BroadcastError::ConversationError(msg) => write!(f, "Conversation error: {}", msg),
-            BroadcastError::MessageSendError(msg) => write!(f, "Message send error: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for BroadcastError {}
-
-async fn process_broadcast_messages(
-    state: Arc<AppState>,
-    users: Vec<crate::models::user_models::User>,
-    message: String,
-) {
-    let success_count = 0;
-    let mut failed_count = 0;
-
-    for user in users {
-        let sender_number = match user.preferred_number.clone() {
-            Some(number) => number,
-            None => {
-                eprintln!("No preferred number for user: {}", user.phone_number);
-                failed_count += 1;
-                continue;
-            }
-        };
-        // Get user settings
-        let user_settings = match state.user_core.get_user_settings(user.id) {
-            Ok(settings) if !settings.notify => continue,
-            Ok(_) => (), // Continue if notify is true or no settings exist
-            Err(e) => {
-                eprintln!("Failed to get user settings for {}: {}", user.email, e);
-                continue;
-            }
-        };
-
-    }
-}
-
 
 
 pub async fn update_discount_tier(
@@ -540,7 +491,8 @@ pub async fn test_sms_with_image(
                 ))?;
 
                 // Convert to base64 data URL
-                let base64 = base64::encode(&data);
+                use base64::{Engine as _, engine::general_purpose::STANDARD};
+                let base64 = STANDARD.encode(&data);
                 let mime_type = "image/jpeg"; // Assuming JPEG format
                 let data_url = format!("data:{};base64,{}", mime_type, base64);
                 

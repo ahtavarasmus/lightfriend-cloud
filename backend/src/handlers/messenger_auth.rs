@@ -448,13 +448,13 @@ pub async fn resync_messenger(
             StatusCode::INTERNAL_SERVER_ERROR,
             AxumJson(json!({"error": "Invalid room ID format"})),
         ))?;
-    if let Some(room) = client.get_room(&room_id) {
+    if client.get_room(&room_id).is_some() {
         println!("📱 Setting up Matrix event handler");
-      
+
         // Set up event handler for the Matrix client
         client.add_event_handler(|ev: SyncRoomMessageEvent| async move {
             match ev {
-                SyncRoomMessageEvent::Original(msg) => {
+                SyncRoomMessageEvent::Original(_msg) => {
                     // Add more specific message handling logic here if needed
                 },
                 SyncRoomMessageEvent::Redacted(_) => {

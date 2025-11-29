@@ -1,7 +1,6 @@
 use diesel::prelude::*;
 use serde::Serialize;
 use diesel::result::Error as DieselError;
-use std::error::Error;
 use crate::utils::encryption::{encrypt, decrypt};
 use rand;
 
@@ -295,7 +294,8 @@ impl UserRepository {
     pub fn log_usage(&self, user_id: i32, sid: Option<String>, activity_type: String, credits: Option<f32>, time_consumed: Option<i32>, success: Option<bool>, reason: Option<String>, status: Option<String>, recharge_threshold_timestamp: Option<i32>, zero_credits_timestamp: Option<i32>) -> Result<(), DieselError> {
         let mut conn = self.pool.get().expect("Failed to get DB connection");
         
-        let user = users::table
+        // Verify user exists
+        users::table
             .find(user_id)
             .first::<User>(&mut conn)?;
 
@@ -340,7 +340,7 @@ impl UserRepository {
         Ok(user.credits < charge_back_threshold)
     }
 
-    pub fn get_usage_data(&self, user_id: i32, from_timestamp: i32) -> Result<Vec<UsageDataPoint>, DieselError> {
+    pub fn get_usage_data(&self, _user_id: i32, from_timestamp: i32) -> Result<Vec<UsageDataPoint>, DieselError> {
         // Check if we're in development mode
         if std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string()) != "development" {
             // Generate example data for the last 30 days
