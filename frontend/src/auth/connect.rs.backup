@@ -5,7 +5,6 @@ use wasm_bindgen::JsValue;
 use crate::config;
 use gloo_net::http::Request;
 use web_sys::UrlSearchParams;
-use crate::utils::api::Api;
 use crate::connections::whatsapp::WhatsappConnect;
 use crate::connections::calendar::CalendarConnect;
 use crate::connections::email::EmailConnect;
@@ -63,15 +62,16 @@ pub fn connect(props: &ConnectProps) -> Html {
         let tesla_connected = tesla_connected.clone();
         use_effect_with_deps(
             move |_| {
-                // Auth handled by cookies - check all connection statuses
+                // All API calls will use cookies automatically via credentials: include
                 // Calendar status check
                 spawn_local({
-                    let calendar_connected = calendar_connected.clone();
-                    async move {
-                        if let Ok(response) = Api::get("/api/auth/google/calendar/status")
-                            .send()
-                            .await
-                        {
+                                let calendar_connected = calendar_connected.clone();
+                                async move {
+                                    if let Ok(response) = Request::get(&format!("{}/api/auth/google/calendar/status", config::get_backend_url()))
+                                        .credentials(web_sys::RequestCredentials::Include)
+                                        .send()
+                                        .await
+                                    {
                                         if let Ok(data) = response.json::<Value>().await {
                                             if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
                                                 calendar_connected.set(connected);
@@ -80,14 +80,15 @@ pub fn connect(props: &ConnectProps) -> Html {
                                     }
                                 }
                             });
-                // Memory (Tasks) status check
-                spawn_local({
-                    let memory_connected = memory_connected.clone();
-                    async move {
-                        if let Ok(response) = Api::get("/api/auth/google/tasks/status")
-                            .send()
-                            .await
-                        {
+                            // Memory (Tasks) status check
+                            spawn_local({
+                                let memory_connected = memory_connected.clone();
+                                async move {
+                                    if let Ok(response) = Request::get(&format!("{}/api/auth/google/tasks/status", config::get_backend_url()))
+                                        .credentials(web_sys::RequestCredentials::Include)
+                                        .send()
+                                        .await
+                                    {
                                         if let Ok(data) = response.json::<Value>().await {
                                             if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
                                                 memory_connected.set(connected);
@@ -96,134 +97,152 @@ pub fn connect(props: &ConnectProps) -> Html {
                                     }
                                 }
                             });
-                // Email status check
-                spawn_local({
-                    let email_connected = email_connected.clone();
-                    async move {
-                        if let Ok(response) = Api::get("/api/auth/imap/status")
-                            .send()
-                            .await
-                        {
-                            if let Ok(data) = response.json::<Value>().await {
-                                if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
-                                    email_connected.set(connected);
+                            // Email status check
+                            spawn_local({
+                                let email_connected = email_connected.clone();
+                                async move {
+                                    if let Ok(response) = Request::get(&format!("{}/api/auth/imap/status", config::get_backend_url()))
+                                        .credentials(web_sys::RequestCredentials::Include)
+                                        .send()
+                                        .await
+                                    {
+                                        if let Ok(data) = response.json::<Value>().await {
+                                            if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
+                                                email_connected.set(connected);
+                                            }
+                                        }
+                                    }
                                 }
-                            }
+                            });
+                            // whatsapp status check
+                            spawn_local({
+                                let whatsapp_connected = whatsapp_connected.clone();
+                                let token = token.clone();
+                                async move {
+                                    if let Ok(response) = Request::get(&format!("{}/api/auth/whatsapp/status", config::get_backend_url()))
+                                        .header("Authorization", &format!("Bearer {}", token))
+                                        .send()
+                                        .await
+                                    {
+                                        if let Ok(data) = response.json::<Value>().await {
+                                            if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
+                                                whatsapp_connected.set(connected);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            // telegram status check
+                            spawn_local({
+                                let telegram_connected = telegram_connected.clone();
+                                let token = token.clone();
+                                async move {
+                                    if let Ok(response) = Request::get(&format!("{}/api/auth/telegram/status", config::get_backend_url()))
+                                        .header("Authorization", &format!("Bearer {}", token))
+                                        .send()
+                                        .await
+                                    {
+                                        if let Ok(data) = response.json::<Value>().await {
+                                            if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
+                                                telegram_connected.set(connected);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            // signal status check
+                            spawn_local({
+                                let signal_connected = signal_connected.clone();
+                                let token = token.clone();
+                                async move {
+                                    if let Ok(response) = Request::get(&format!("{}/api/auth/signal/status", config::get_backend_url()))
+                                        .header("Authorization", &format!("Bearer {}", token))
+                                        .send()
+                                        .await
+                                    {
+                                        if let Ok(data) = response.json::<Value>().await {
+                                            if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
+                                                signal_connected.set(connected);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            // instagram status check
+                            spawn_local({
+                                let instagram_connected = instagram_connected.clone();
+                                let token = token.clone();
+                                async move {
+                                    if let Ok(response) = Request::get(&format!("{}/api/auth/instagram/status", config::get_backend_url()))
+                                        .header("Authorization", &format!("Bearer {}", token))
+                                        .send()
+                                        .await
+                                    {
+                                        if let Ok(data) = response.json::<Value>().await {
+                                            if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
+                                                instagram_connected.set(connected);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            // messenger status check
+                            spawn_local({
+                                let messenger_connected = messenger_connected.clone();
+                                let token = token.clone();
+                                async move {
+                                    if let Ok(response) = Request::get(&format!("{}/api/auth/messenger/status", config::get_backend_url()))
+                                        .header("Authorization", &format!("Bearer {}", token))
+                                        .send()
+                                        .await
+                                    {
+                                        if let Ok(data) = response.json::<Value>().await {
+                                            if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
+                                                messenger_connected.set(connected);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            // uber status check
+                            spawn_local({
+                                let uber_connected = uber_connected.clone();
+                                let token = token.clone();
+                                async move {
+                                    if let Ok(response) = Request::get(&format!("{}/api/auth/uber/status", config::get_backend_url()))
+                                        .header("Authorization", &format!("Bearer {}", token))
+                                        .send()
+                                        .await
+                                    {
+                                        if let Ok(data) = response.json::<Value>().await {
+                                            if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
+                                                uber_connected.set(connected);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                            // tesla status check
+                            spawn_local({
+                                let tesla_connected = tesla_connected.clone();
+                                let token = token.clone();
+                                async move {
+                                    if let Ok(response) = Request::get(&format!("{}/api/auth/tesla/status", config::get_backend_url()))
+                                        .header("Authorization", &format!("Bearer {}", token))
+                                        .send()
+                                        .await
+                                    {
+                                        if let Ok(data) = response.json::<Value>().await {
+                                            if let Some(has_tesla) = data.get("has_tesla").and_then(|v| v.as_bool()) {
+                                                tesla_connected.set(has_tesla);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
                         }
                     }
-                });
-                // whatsapp status check
-                spawn_local({
-                    let whatsapp_connected = whatsapp_connected.clone();
-                    async move {
-                        if let Ok(response) = Api::get("/api/auth/whatsapp/status")
-                            .send()
-                            .await
-                        {
-                            if let Ok(data) = response.json::<Value>().await {
-                                if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
-                                    whatsapp_connected.set(connected);
-                                }
-                            }
-                        }
-                    }
-                });
-                // telegram status check
-                spawn_local({
-                    let telegram_connected = telegram_connected.clone();
-                    async move {
-                        if let Ok(response) = Api::get("/api/auth/telegram/status")
-                            .send()
-                            .await
-                        {
-                            if let Ok(data) = response.json::<Value>().await {
-                                if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
-                                    telegram_connected.set(connected);
-                                }
-                            }
-                        }
-                    }
-                });
-                // signal status check
-                spawn_local({
-                    let signal_connected = signal_connected.clone();
-                    async move {
-                        if let Ok(response) = Api::get("/api/auth/signal/status")
-                            .send()
-                            .await
-                        {
-                            if let Ok(data) = response.json::<Value>().await {
-                                if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
-                                    signal_connected.set(connected);
-                                }
-                            }
-                        }
-                    }
-                });
-                // instagram status check
-                spawn_local({
-                    let instagram_connected = instagram_connected.clone();
-                    async move {
-                        if let Ok(response) = Api::get("/api/auth/instagram/status")
-                            .send()
-                            .await
-                        {
-                            if let Ok(data) = response.json::<Value>().await {
-                                if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
-                                    instagram_connected.set(connected);
-                                }
-                            }
-                        }
-                    }
-                });
-                // messenger status check
-                spawn_local({
-                    let messenger_connected = messenger_connected.clone();
-                    async move {
-                        if let Ok(response) = Api::get("/api/auth/messenger/status")
-                            .send()
-                            .await
-                        {
-                            if let Ok(data) = response.json::<Value>().await {
-                                if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
-                                    messenger_connected.set(connected);
-                                }
-                            }
-                        }
-                    }
-                });
-                // uber status check
-                spawn_local({
-                    let uber_connected = uber_connected.clone();
-                    async move {
-                        if let Ok(response) = Api::get("/api/auth/uber/status")
-                            .send()
-                            .await
-                        {
-                            if let Ok(data) = response.json::<Value>().await {
-                                if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
-                                    uber_connected.set(connected);
-                                }
-                            }
-                        }
-                    }
-                });
-                // tesla status check
-                spawn_local({
-                    let tesla_connected = tesla_connected.clone();
-                    async move {
-                        if let Ok(response) = Api::get("/api/auth/tesla/status")
-                            .send()
-                            .await
-                        {
-                            if let Ok(data) = response.json::<Value>().await {
-                                if let Some(has_tesla) = data.get("has_tesla").and_then(|v| v.as_bool()) {
-                                    tesla_connected.set(has_tesla);
-                                }
-                            }
-                        }
-                    }
-                });
+                }
                 || ()
             },
             (),
@@ -235,6 +254,22 @@ pub fn connect(props: &ConnectProps) -> Html {
         map.insert("proactive", ServiceGroupState { expanded: false, service_count: 4, connected_count: 0 });
         map
     });
+    // Check token on component mount
+    use_effect_with_deps(
+        |_| {
+            if let Some(window) = web_sys::window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    if let Ok(Some(token)) = storage.get_item("token") {
+                        web_sys::console::log_1(&format!("Token found in localStorage: {}", token).into());
+                    } else {
+                        web_sys::console::log_1(&"No token found in localStorage".into());
+                    }
+                }
+            }
+            || ()
+        },
+        (),
+    );
     // Clean URL parameters if present (post-callback)
     use_effect_with_deps(
         move |_| {
@@ -553,7 +588,7 @@ pub fn connect(props: &ConnectProps) -> Html {
                             <div class="service-item">
                                 <div class="service-header">
                                     <div class="service-name">
-                                        <img src="https://upload.wikimedia.org/wikipedia/commons/1/1d/Perplexity_AI_logo.svg" alt="Perplexity" width="24" height="24"/>
+                                        <img src="https://www.perplexity.ai/favicon.ico" alt="Perplexity" width="24" height="24"/>
                                         {"Perplexity AI"}
                                     </div>
                                 </div>

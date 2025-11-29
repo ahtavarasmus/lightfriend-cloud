@@ -2,6 +2,7 @@ use yew::prelude::*;
 use yew_router::prelude::*;
 use crate::Route;
 use crate::config;
+use crate::utils::api::Api;
 use crate::profile::billing_models::UserProfile;
 use web_sys::{window, HtmlInputElement};
 use gloo_net::http::Request;
@@ -115,28 +116,10 @@ pub fn Verify() -> Html {
                 wasm_bindgen_futures::spawn_local(async move {
                     let user_profile = user_profile.clone();
                     let phone_number = phone_number.clone();
-                    if let Some(token) = window()
-                        .and_then(|w| w.local_storage().ok())
-                        .flatten()
-                        .and_then(|storage| storage.get_item("token").ok())
-                        .flatten()
-                    {
-                        match Request::get(&format!("{}/api/profile", config::get_backend_url()))
-                            .header("Authorization", &format!("Bearer {}", token))
-                            .send()
-                            .await
-                        {
-                            Ok(response) => {
-                                if response.status() == 401 {
-                                    if let Some(window) = window() {
-                                        if let Ok(Some(storage)) = window.local_storage() {
-                                            let _ = storage.remove_item("token");
-                                            let _ = window.location().set_href("/");
-                                        }
-                                    }
-                                    return;
-                                }
-                                   
+                    match Api::get("/api/profile").send().await {
+                        Ok(response) => {
+                            // Automatic retry handles 401 with token refresh/redirect
+                            if response.ok() {
                                 if let Ok(profile) = response.json::<UserProfile>().await {
                                     user_profile.set(Some(profile.clone()));
                                     if profile.verified {
@@ -153,9 +136,9 @@ pub fn Verify() -> Html {
                                     }
                                 }
                             }
-                            Err(_) => {
-                                gloo_console::error!("Failed to fetch profile");
-                            }
+                        }
+                        Err(_) => {
+                            gloo_console::error!("Failed to fetch profile");
                         }
                     }
                 });
@@ -372,33 +355,26 @@ pub fn Verify() -> Html {
                                                     let success = success.clone();
                                                     let is_editing = is_editing.clone();
                                                     let user_profile = user_profile.clone();
-                                                   
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        wasm_bindgen_futures::spawn_local(async move {
-                                                            if let Some(profile) = (*user_profile).clone() {
-                                                                match Request::post(&format!("{}/api/profile/update", config::get_backend_url()))
-                                                                    .header("Authorization", &format!("Bearer {}", token))
-                                                                    .json(&UpdatePhoneRequest {
-                                                                        email: profile.email.clone(),
-                                                                        phone_number: (*phone_number).clone(),
-                                                                        nickname: profile.nickname.clone().unwrap_or_default(),
-                                                                        info: profile.info.clone().unwrap_or_default(),
-                                                                        timezone: profile.timezone.clone().unwrap_or_else(|| String::from("UTC")),
-                                                                        timezone_auto: profile.timezone_auto.unwrap_or(true),
-                                                                        agent_language: profile.agent_language.clone(),
-                                                                        notification_type: profile.notification_type.clone(),
-                                                                        save_context: profile.save_context.clone(),
-                                                                        location: profile.location.clone().unwrap_or("".to_string()),
-                                                                        nearby_places: profile.nearby_places.clone().unwrap_or("".to_string()),
-                                                                    })
-                                                                    .expect("Failed to build request")
-                                                                    .send()
-                                                                    .await
+
+                                                    wasm_bindgen_futures::spawn_local(async move {
+                                                        if let Some(profile) = (*user_profile).clone() {
+                                                            match Api::post("/api/profile/update")
+                                                                .header("Content-Type", "application/json")
+                                                                .body(serde_json::to_string(&UpdatePhoneRequest {
+                                                                    email: profile.email.clone(),
+                                                                    phone_number: (*phone_number).clone(),
+                                                                    nickname: profile.nickname.clone().unwrap_or_default(),
+                                                                    info: profile.info.clone().unwrap_or_default(),
+                                                                    timezone: profile.timezone.clone().unwrap_or_else(|| String::from("UTC")),
+                                                                    timezone_auto: profile.timezone_auto.unwrap_or(true),
+                                                                    agent_language: profile.agent_language.clone(),
+                                                                    notification_type: profile.notification_type.clone(),
+                                                                    save_context: profile.save_context.clone(),
+                                                                    location: profile.location.clone().unwrap_or("".to_string()),
+                                                                    nearby_places: profile.nearby_places.clone().unwrap_or("".to_string()),
+                                                                }).unwrap())
+                                                                .send()
+                                                                .await
                                                                 {
                                                                     Ok(response) => {
                                                                         if response.ok() {
@@ -409,13 +385,12 @@ pub fn Verify() -> Html {
                                                                             error.set(Some("Failed to update phone number".to_string()));
                                                                         }
                                                                     }
-                                                                    Err(_) => {
-                                                                        error.set(Some("Failed to send request".to_string()));
-                                                                    }
+                                                                Err(_) => {
+                                                                    error.set(Some("Failed to send request".to_string()));
                                                                 }
                                                             }
-                                                        });
-                                                    }
+                                                        }
+                                                    });
                                                     })
                                                 }}
                                             >

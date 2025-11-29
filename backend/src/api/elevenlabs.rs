@@ -14,7 +14,6 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use chrono::TimeZone;
 use crate::handlers::imap_handlers::{fetch_emails_imap, fetch_single_email_imap};
-use crate::models::user_models::User;
 
 
 #[derive(Debug, Deserialize)]
@@ -634,7 +633,6 @@ pub async fn handle_email_fetch_tool_call(
 
 
 
-use base64::Engine as _;
 
 pub async fn handle_send_sms_tool_call(
     State(state): State<Arc<AppState>>,

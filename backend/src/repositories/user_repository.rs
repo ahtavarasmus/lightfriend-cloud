@@ -1,5 +1,4 @@
 use diesel::prelude::*;
-use diesel::sql_types::Text;
 use serde::Serialize;
 use diesel::result::Error as DieselError;
 use std::error::Error;
@@ -17,7 +16,7 @@ use crate::{
         NewImapConnection, Bridge, NewBridge, WaitingCheck, 
         NewWaitingCheck, PrioritySender, NewPrioritySender, Keyword, 
         NewKeyword, NewGoogleTasks,
-        TaskNotification, NewTaskNotification, Uber, NewUber,
+        TaskNotification, NewTaskNotification, NewUber,
     },
     schema::{
         users, usage_logs, 
@@ -578,6 +577,20 @@ impl UserRepository {
             .filter(priority_senders::user_id.eq(user_id))
             .filter(priority_senders::service_type.eq(service_type))
             .filter(priority_senders::sender.eq(sender))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn update_priority_sender(&self, user_id: i32, service_type: &str, sender: &str, noti_type: Option<String>, noti_mode: String) -> Result<(), DieselError> {
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        diesel::update(priority_senders::table)
+            .filter(priority_senders::user_id.eq(user_id))
+            .filter(priority_senders::service_type.eq(service_type))
+            .filter(priority_senders::sender.eq(sender))
+            .set((
+                priority_senders::noti_type.eq(noti_type),
+                priority_senders::noti_mode.eq(noti_mode),
+            ))
             .execute(&mut conn)?;
         Ok(())
     }

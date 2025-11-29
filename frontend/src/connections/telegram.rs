@@ -1,11 +1,10 @@
 use yew::prelude::*;
-use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::{window, Event};
 use wasm_bindgen::JsCast;
-use crate::config;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::js_sys;
+use crate::utils::api::Api;
 #[derive(Deserialize, Clone, Debug)]
 struct TelegramStatus {
     connected: bool,
@@ -34,35 +33,27 @@ pub fn telegram_connect(props: &TelegramProps) -> Html {
         Callback::from(move |_| {
             let connection_status = connection_status.clone();
             let error = error.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                spawn_local(async move {
-                    match Request::get(&format!("{}/api/auth/telegram/status", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            match response.json::<TelegramStatus>().await {
-                                Ok(status) => {
-                                    connection_status.set(Some(status));
-                                    error.set(None);
-                                }
-                                Err(_) => {
-                                    error.set(Some("Failed to parse Telegram status".to_string()));
-                                }
+            spawn_local(async move {
+                match Api::get("/api/auth/telegram/status")
+                    .send()
+                    .await
+                {
+                    Ok(response) => {
+                        match response.json::<TelegramStatus>().await {
+                            Ok(status) => {
+                                connection_status.set(Some(status));
+                                error.set(None);
+                            }
+                            Err(_) => {
+                                error.set(Some("Failed to parse Telegram status".to_string()));
                             }
                         }
-                        Err(_) => {
-                            error.set(Some("Failed to fetch Telegram status".to_string()));
-                        }
                     }
-                });
-            }
+                    Err(_) => {
+                        error.set(Some("Failed to fetch Telegram status".to_string()));
+                    }
+                }
+            });
         })
     };
     {
@@ -82,21 +73,14 @@ pub fn telegram_connect(props: &TelegramProps) -> Html {
             let login_link = login_link.clone();
             let error = error.clone();
             let fetch_status = fetch_status.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                is_connecting.set(true);
-                spawn_local(async move {
-                    match Request::get(&format!("{}/api/auth/telegram/connect", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            match response.json::<TelegramConnectionResponse>().await {
+            is_connecting.set(true);
+            spawn_local(async move {
+                match Api::get("/api/auth/telegram/connect")
+                    .send()
+                    .await
+                {
+                    Ok(response) => {
+                        match response.json::<TelegramConnectionResponse>().await {
                                 Ok(connection_response) => {
                                     login_link.set(Some(connection_response.login_url));
                                     error.set(None);
@@ -163,7 +147,6 @@ pub fn telegram_connect(props: &TelegramProps) -> Html {
                         }
                     }
                 });
-            }
         })
     };
     let disconnect = {
@@ -172,32 +155,24 @@ pub fn telegram_connect(props: &TelegramProps) -> Html {
         Callback::from(move |_| {
             let connection_status = connection_status.clone();
             let error = error.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                spawn_local(async move {
-                    match Request::delete(&format!("{}/api/auth/telegram/disconnect", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
-                    {
-                        Ok(_) => {
-                            connection_status.set(Some(TelegramStatus {
-                                connected: false,
-                                status: "not_connected".to_string(),
-                                created_at: (js_sys::Date::now() as i32),
-                            }));
-                            error.set(None);
-                        }
-                        Err(_) => {
-                            error.set(Some("Failed to disconnect Telegram".to_string()));
-                        }
+            spawn_local(async move {
+                match Api::delete("/api/auth/telegram/disconnect")
+                    .send()
+                    .await
+                {
+                    Ok(_) => {
+                        connection_status.set(Some(TelegramStatus {
+                            connected: false,
+                            status: "not_connected".to_string(),
+                            created_at: (js_sys::Date::now() as i32),
+                        }));
+                        error.set(None);
                     }
-                });
-            }
+                    Err(_) => {
+                        error.set(Some("Failed to disconnect Telegram".to_string()));
+                    }
+                }
+            });
         })
     };
     html! {
@@ -276,28 +251,20 @@ pub fn telegram_connect(props: &TelegramProps) -> Html {
                                                 let fetch_status = fetch_status.clone();
                                                 Callback::from(move |_| {
                                                     let fetch_status = fetch_status.clone();
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
-                                                            match Request::post(&format!("{}/api/auth/telegram/resync", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .send()
-                                                                .await
-                                                            {
-                                                                Ok(_) => {
-                                                                    web_sys::console::log_1(&"Telegram resync initiated".into());
-                                                                    fetch_status.emit(());
-                                                                }
-                                                                Err(e) => {
-                                                                    web_sys::console::error_1(&format!("Failed to resync Telegram: {}", e).into());
-                                                                }
+                                                    spawn_local(async move {
+                                                        match Api::post("/api/auth/telegram/resync")
+                                                            .send()
+                                                            .await
+                                                        {
+                                                            Ok(_) => {
+                                                                web_sys::console::log_1(&"Telegram resync initiated".into());
+                                                                fetch_status.emit(());
                                                             }
-                                                        });
-                                                    }
+                                                            Err(e) => {
+                                                                web_sys::console::error_1(&format!("Failed to resync Telegram: {}", e).into());
+                                                            }
+                                                        }
+                                                    });
                                                 })
                                             }} class="resync-button">
                                                 {"Resync Telegram"}
@@ -314,124 +281,108 @@ pub fn telegram_connect(props: &TelegramProps) -> Html {
                                         <>
                                             <button onclick={{
                                                 Callback::from(move |_| {
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
-                                                            match Request::get(&format!("{}/api/telegram/test-messages", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .send()
-                                                                .await
-                                                            {
-                                                                Ok(response) => {
-                                                                    web_sys::console::log_1(&format!("Response status: {}", response.status()).into());
-                                                                    match response.text().await {
-                                                                        Ok(text) => {
-                                                                            web_sys::console::log_1(&format!("Raw response: {}", text).into());
-                                                                            match serde_json::from_str::<serde_json::Value>(&text) {
-                                                                                Ok(data) => {
-                                                                                    web_sys::console::log_1(&format!("Messages: {:?}", data).into());
-                                                                                }
-                                                                                Err(e) => {
-                                                                                    web_sys::console::error_1(&format!("Failed to parse JSON: {}", e).into());
-                                                                                }
+                                                    spawn_local(async move {
+                                                        match Api::get("/api/telegram/test-messages")
+                                                            .send()
+                                                            .await
+                                                        {
+                                                            Ok(response) => {
+                                                                web_sys::console::log_1(&format!("Response status: {}", response.status()).into());
+                                                                match response.text().await {
+                                                                    Ok(text) => {
+                                                                        web_sys::console::log_1(&format!("Raw response: {}", text).into());
+                                                                        match serde_json::from_str::<serde_json::Value>(&text) {
+                                                                            Ok(data) => {
+                                                                                web_sys::console::log_1(&format!("Messages: {:?}", data).into());
+                                                                            }
+                                                                            Err(e) => {
+                                                                                web_sys::console::error_1(&format!("Failed to parse JSON: {}", e).into());
                                                                             }
                                                                         }
-                                                                        Err(e) => {
-                                                                            web_sys::console::error_1(&format!("Failed to get response text: {}", e).into());
-                                                                        }
+                                                                    }
+                                                                    Err(e) => {
+                                                                        web_sys::console::error_1(&format!("Failed to get response text: {}", e).into());
                                                                     }
                                                                 }
-                                                                Err(e) => {
-                                                                    web_sys::console::error_1(&format!("Failed to fetch messages: {}", e).into());
-                                                                }
                                                             }
-                                                        });
-                                                    }
+                                                            Err(e) => {
+                                                                web_sys::console::error_1(&format!("Failed to fetch messages: {}", e).into());
+                                                            }
+                                                        }
+                                                    });
                                                 })
                                             }} class="test-button">
                                                 {"Test Fetch Messages"}
                                             </button>
                                             <button onclick={{
                                                 Callback::from(move |_| {
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
-                                                            let request_body = serde_json::json!({
-                                                                "chat_name": "test",
-                                                                "message": "testing"
-                                                            });
-                                                            match Request::post(&format!("{}/api/telegram/send", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .header("Content-Type", "application/json")
-                                                                .body(serde_json::to_string(&request_body).unwrap())
-                                                                .send()
-                                                                .await
-                                                            {
-                                                                Ok(response) => {
-                                                                    web_sys::console::log_1(&format!("Send message response status: {}", response.status()).into());
-                                                                    match response.text().await {
-                                                                        Ok(text) => {
-                                                                            web_sys::console::log_1(&format!("Send message response: {}", text).into());
-                                                                        }
-                                                                        Err(e) => {
-                                                                            web_sys::console::error_1(&format!("Failed to get send message response text: {}", e).into());
+                                                    spawn_local(async move {
+                                                        let request_body = serde_json::json!({
+                                                            "chat_name": "test",
+                                                            "message": "testing"
+                                                        });
+                                                        match Api::post("/api/telegram/send")
+                                                            .json(&request_body)
+                                                        {
+                                                            Ok(req) => {
+                                                                match req.send().await {
+                                                                    Ok(response) => {
+                                                                        web_sys::console::log_1(&format!("Send message response status: {}", response.status()).into());
+                                                                        match response.text().await {
+                                                                            Ok(text) => {
+                                                                                web_sys::console::log_1(&format!("Send message response: {}", text).into());
+                                                                            }
+                                                                            Err(e) => {
+                                                                                web_sys::console::error_1(&format!("Failed to get send message response text: {}", e).into());
+                                                                            }
                                                                         }
                                                                     }
-                                                                }
-                                                                Err(e) => {
-                                                                    web_sys::console::error_1(&format!("Failed to send test message: {}", e).into());
+                                                                    Err(e) => {
+                                                                        web_sys::console::error_1(&format!("Failed to send test message: {}", e).into());
+                                                                    }
                                                                 }
                                                             }
-                                                        });
-                                                    }
+                                                            Err(e) => {
+                                                                web_sys::console::error_1(&format!("Failed to create request: {}", e).into());
+                                                            }
+                                                        }
+                                                    });
                                                 })
                                             }} class="test-button test-send-button">
                                                 {"Test Send Message"}
                                             </button>
                                             <button onclick={{
                                                 Callback::from(move |_| {
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
-                                                            let request_body = serde_json::json!({
-                                                                "search_term": "test"
-                                                            });
-                                                            match Request::post(&format!("{}/api/telegram/search-rooms", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .header("Content-Type", "application/json")
-                                                                .body(serde_json::to_string(&request_body).unwrap())
-                                                                .send()
-                                                                .await
-                                                            {
-                                                                Ok(response) => {
-                                                                    web_sys::console::log_1(&format!("Search rooms response status: {}", response.status()).into());
-                                                                    match response.text().await {
-                                                                        Ok(text) => {
-                                                                            web_sys::console::log_1(&format!("Search rooms response: {}", text).into());
-                                                                        }
-                                                                        Err(e) => {
-                                                                            web_sys::console::error_1(&format!("Failed to get search rooms response text: {}", e).into());
+                                                    spawn_local(async move {
+                                                        let request_body = serde_json::json!({
+                                                            "search_term": "test"
+                                                        });
+                                                        match Api::post("/api/telegram/search-rooms")
+                                                            .json(&request_body)
+                                                        {
+                                                            Ok(req) => {
+                                                                match req.send().await {
+                                                                    Ok(response) => {
+                                                                        web_sys::console::log_1(&format!("Search rooms response status: {}", response.status()).into());
+                                                                        match response.text().await {
+                                                                            Ok(text) => {
+                                                                                web_sys::console::log_1(&format!("Search rooms response: {}", text).into());
+                                                                            }
+                                                                            Err(e) => {
+                                                                                web_sys::console::error_1(&format!("Failed to get search rooms response text: {}", e).into());
+                                                                            }
                                                                         }
                                                                     }
-                                                                }
-                                                                Err(e) => {
-                                                                    web_sys::console::error_1(&format!("Failed to search rooms: {}", e).into());
+                                                                    Err(e) => {
+                                                                        web_sys::console::error_1(&format!("Failed to search rooms: {}", e).into());
+                                                                    }
                                                                 }
                                                             }
-                                                        });
-                                                    }
+                                                            Err(e) => {
+                                                                web_sys::console::error_1(&format!("Failed to create request: {}", e).into());
+                                                            }
+                                                        }
+                                                    });
                                                 })
                                             }} class="test-button test-search-button">
                                                 {"Test Search Rooms"}

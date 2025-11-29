@@ -1,4 +1,4 @@
-use crate::handlers::imap_handlers::{self, ImapError};
+use crate::handlers::imap_handlers::ImapError;
 use crate::AppState;
 use std::sync::Arc;
 

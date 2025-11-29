@@ -5,12 +5,12 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::window;
 use serde::{Deserialize, Serialize};
 use crate::config;
+use crate::utils::api::Api;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DigestsResponse {
     morning_digest_time: Option<String>, // RFC3339 time string or None
     day_digest_time: Option<String>, // RFC3339 time string or None
     evening_digest_time: Option<String>, // RFC3339 time string or None
-    amount_affordable_with_messages: i32,
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct UpdateDigestsRequest {
@@ -39,30 +39,19 @@ pub fn digest_section(props: &DigestSectionProps) -> Html {
         let evening_digest_time = evening_digest_time.clone();
         use_effect_with_deps(
             move |_| {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|s| s.get_item("token").ok())
-                    .flatten()
-                {
-                    spawn_local(async move {
-                        if let Ok(resp) = Request::get(&format!(
-                            "{}/api/profile/digests",
-                            config::get_backend_url(),
-                        ))
-                        .header("Authorization", &format!("Bearer {}", token))
+                spawn_local(async move {
+                    if let Ok(resp) = Api::get("/api/profile/digests")
                         .send()
                         .await
-                        {
-                            if let Ok(digests) = resp.json::<DigestsResponse>().await {
-                                info!("Received digests from backend: {:?}", digests);
-                                morning_digest_time.set(digests.morning_digest_time);
-                                day_digest_time.set(digests.day_digest_time);
-                                evening_digest_time.set(digests.evening_digest_time);
-                            }
+                    {
+                        if let Ok(digests) = resp.json::<DigestsResponse>().await {
+                            info!("Received digests from backend: {:?}", digests);
+                            morning_digest_time.set(digests.morning_digest_time);
+                            day_digest_time.set(digests.day_digest_time);
+                            evening_digest_time.set(digests.evening_digest_time);
                         }
-                    });
-                }
+                    }
+                });
                 || ()
             },
             (),
@@ -87,26 +76,16 @@ pub fn digest_section(props: &DigestSectionProps) -> Html {
             // Clear any existing messages
             success_message.set(None);
             error_message.set(None);
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                is_saving.set(true);
-                spawn_local(async move {
-                    let request = UpdateDigestsRequest {
-                        morning_digest_time: morning,
-                        day_digest_time: day,
-                        evening_digest_time: evening,
-                    };
-                    let result = Request::post(&format!(
-                        "{}/api/profile/digests",
-                        config::get_backend_url(),
-                    ))
-                    .header("Authorization", &format!("Bearer {}", token))
-                    .json(&request)
-                    .unwrap()
+            is_saving.set(true);
+            spawn_local(async move {
+                let request = UpdateDigestsRequest {
+                    morning_digest_time: morning,
+                    day_digest_time: day,
+                    evening_digest_time: evening,
+                };
+                let result = Api::post("/api/profile/digests")
+                    .header("Content-Type", "application/json")
+                    .body(serde_json::to_string(&request).unwrap())
                     .send()
                     .await;
                     is_saving.set(false);
@@ -143,10 +122,9 @@ pub fn digest_section(props: &DigestSectionProps) -> Html {
                         }
                         Err(_) => {
                             error_message.set(Some("Failed to connect to server".to_string()));
-                        }
                     }
-                });
-            }
+                }
+            });
         })
     };
     let handle_time_change = {

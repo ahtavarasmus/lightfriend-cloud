@@ -1,13 +1,8 @@
-use crate::AppState;
-use std::sync::Arc;
-use tracing::{info, error};
 use std::env;
-use openai_api_rs;
 use serde_json;
 use reqwest;
 use serde::Deserialize;
 
-use crate::handlers::imap_handlers::ImapEmailPreview;
 
 use reqwest::multipart;
 

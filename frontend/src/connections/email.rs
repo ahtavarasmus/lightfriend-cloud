@@ -2,8 +2,7 @@ use yew::prelude::*;
 use web_sys::{MouseEvent, HtmlInputElement, Event};
 use serde_json::json;
 use wasm_bindgen_futures::spawn_local;
-use gloo_net::http::Request;
-use crate::config;
+use crate::utils::api::Api;
 #[derive(Properties, PartialEq)]
 pub struct EmailProps {
     pub user_id: i32,
@@ -33,34 +32,26 @@ pub fn email_connect(props: &EmailProps) -> Html {
         let connected_email = connected_email.clone();
         use_effect_with_deps(
             move |_| {
-                if let Some(window) = web_sys::window() {
-                    if let Ok(Some(storage)) = window.local_storage() {
-                        if let Ok(Some(token)) = storage.get_item("token") {
-                            let imap_connected = imap_connected.clone();
-                            let connected_email = connected_email.clone();
-                            spawn_local(async move {
-                                let request = Request::get(&format!("{}/api/auth/imap/status", config::get_backend_url()))
-                                    .header("Authorization", &format!("Bearer {}", token))
-                                    .send()
-                                    .await;
-                                if let Ok(response) = request {
-                                    if response.ok() {
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
-                                                imap_connected.set(connected);
-                                                if connected {
-                                                    connected_email.set(data.get("email").and_then(|e| e.as_str()).map(String::from));
-                                                } else {
-                                                    connected_email.set(None);
-                                                }
-                                            }
-                                        }
+                // Auth handled by cookies
+                spawn_local(async move {
+                    let request = Api::get("/api/auth/imap/status")
+                        .send()
+                        .await;
+                    if let Ok(response) = request {
+                        if response.ok() {
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
+                                    imap_connected.set(connected);
+                                    if connected {
+                                        connected_email.set(data.get("email").and_then(|e| e.as_str()).map(String::from));
+                                    } else {
+                                        connected_email.set(None);
                                     }
                                 }
-                            });
+                            }
                         }
                     }
-                }
+                });
                 || ()
             },
             (),
@@ -136,50 +127,44 @@ pub fn email_connect(props: &EmailProps) -> Html {
             let imap_email_setter = imap_email_setter.clone();
             let imap_password_setter = imap_password_setter.clone();
             let connected_email = connected_email.clone();
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        spawn_local(async move {
-                            let mut payload = json!({
-                                "email": email,
-                                "password": password,
-                            });
-                            // Include server and port only for custom provider or if overridden
-                            if provider == "custom" || (!server.is_empty() && !port.is_empty()) {
-                                payload["imap_server"] = json!(server);
-                                payload["imap_port"] = json!(port.parse::<u16>().unwrap_or(993));
-                            }
-                            let request = Request::post(&format!("{}/api/auth/imap/login", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .header("Content-Type", "application/json")
-                                .json(&payload)
-                                .unwrap();
-                            match request.send().await {
-                                Ok(response) => {
-                                    if response.ok() {
-                                        imap_connected.set(true);
-                                        imap_email_setter.set(String::new());
-                                        imap_password_setter.set(String::new());
-                                        error.set(None);
-                                        connected_email.set(Some(email));
-                                    } else {
-                                        if let Ok(error_data) = response.json::<serde_json::Value>().await {
-                                            if let Some(error_msg) = error_data.get("error").and_then(|e| e.as_str()) {
-                                                error.set(Some(error_msg.to_string()));
-                                            } else {
-                                                error.set(Some(format!("Failed to connect: {}", response.status())));
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error.set(Some(format!("Network error: {}", e)));
+            // Auth handled by cookies
+            spawn_local(async move {
+                let mut payload = json!({
+                    "email": email,
+                    "password": password,
+                });
+                // Include server and port only for custom provider or if overridden
+                if provider == "custom" || (!server.is_empty() && !port.is_empty()) {
+                    payload["imap_server"] = json!(server);
+                    payload["imap_port"] = json!(port.parse::<u16>().unwrap_or(993));
+                }
+                let request = Api::post("/api/auth/imap/login")
+                    .header("Content-Type", "application/json")
+                    .json(&payload)
+                    .unwrap();
+                match request.send().await {
+                    Ok(response) => {
+                        if response.ok() {
+                            imap_connected.set(true);
+                            imap_email_setter.set(String::new());
+                            imap_password_setter.set(String::new());
+                            error.set(None);
+                            connected_email.set(Some(email));
+                        } else {
+                            if let Ok(error_data) = response.json::<serde_json::Value>().await {
+                                if let Some(error_msg) = error_data.get("error").and_then(|e| e.as_str()) {
+                                    error.set(Some(error_msg.to_string()));
+                                } else {
+                                    error.set(Some(format!("Failed to connect: {}", response.status())));
                                 }
                             }
-                        });
+                        }
+                    }
+                    Err(e) => {
+                        error.set(Some(format!("Network error: {}", e)));
                     }
                 }
-            }
+            });
         })
     };
     let onclick_imap_disconnect = {
@@ -190,38 +175,32 @@ pub fn email_connect(props: &EmailProps) -> Html {
             let imap_connected = imap_connected.clone();
             let error = error.clone();
             let connected_email = connected_email.clone();
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        spawn_local(async move {
-                            let request = Request::delete(&format!("{}/api/auth/imap/disconnect", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await;
-                            match request {
-                                Ok(response) => {
-                                    if response.ok() {
-                                        imap_connected.set(false);
-                                        connected_email.set(None);
-                                        error.set(None);
-                                    } else {
-                                        if let Ok(error_data) = response.json::<serde_json::Value>().await {
-                                            if let Some(error_msg) = error_data.get("error").and_then(|e| e.as_str()) {
-                                                error.set(Some(error_msg.to_string()));
-                                            } else {
-                                                error.set(Some(format!("Failed to disconnect: {}", response.status())));
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error.set(Some(format!("Network error: {}", e)));
+            // Auth handled by cookies
+            spawn_local(async move {
+                let request = Api::delete("/api/auth/imap/disconnect")
+                    .send()
+                    .await;
+                match request {
+                    Ok(response) => {
+                        if response.ok() {
+                            imap_connected.set(false);
+                            connected_email.set(None);
+                            error.set(None);
+                        } else {
+                            if let Ok(error_data) = response.json::<serde_json::Value>().await {
+                                if let Some(error_msg) = error_data.get("error").and_then(|e| e.as_str()) {
+                                    error.set(Some(error_msg.to_string()));
+                                } else {
+                                    error.set(Some(format!("Failed to disconnect: {}", response.status())));
                                 }
                             }
-                        });
+                        }
+                    }
+                    Err(e) => {
+                        error.set(Some(format!("Network error: {}", e)));
                     }
                 }
-            }
+            });
         })
     };
     html! {
@@ -317,32 +296,26 @@ pub fn email_connect(props: &EmailProps) -> Html {
                                         let error = error.clone();
                                         Callback::from(move |_: MouseEvent| {
                                             let error = error.clone();
-                                            if let Some(window) = web_sys::window() {
-                                                if let Ok(Some(storage)) = window.local_storage() {
-                                                    if let Ok(Some(token)) = storage.get_item("token") {
-                                                        spawn_local(async move {
-                                                            let request = Request::get(&format!("{}/api/imap/previews", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .send()
-                                                                .await;
-                                                            match request {
-                                                                Ok(response) => {
-                                                                    if response.status() == 200 {
-                                                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                                                            web_sys::console::log_1(&format!("IMAP previews: {:?}", data).into());
-                                                                        }
-                                                                    } else {
-                                                                        error.set(Some("Failed to fetch IMAP previews".to_string()));
-                                                                    }
-                                                                }
-                                                                Err(e) => {
-                                                                    error.set(Some(format!("Network error: {}", e)));
-                                                                }
+                                            // Auth handled by cookies
+                                            spawn_local(async move {
+                                                let request = Api::get("/api/imap/previews")
+                                                    .send()
+                                                    .await;
+                                                match request {
+                                                    Ok(response) => {
+                                                        if response.status() == 200 {
+                                                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                                                web_sys::console::log_1(&format!("IMAP previews: {:?}", data).into());
                                                             }
-                                                        });
+                                                        } else {
+                                                            error.set(Some("Failed to fetch IMAP previews".to_string()));
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        error.set(Some(format!("Network error: {}", e)));
                                                     }
                                                 }
-                                            }
+                                            });
                                         })
                                     }
                                     class="test-button"
@@ -354,32 +327,26 @@ pub fn email_connect(props: &EmailProps) -> Html {
                                         let error = error.clone();
                                         Callback::from(move |_: MouseEvent| {
                                             let error = error.clone();
-                                            if let Some(window) = web_sys::window() {
-                                                if let Ok(Some(storage)) = window.local_storage() {
-                                                    if let Ok(Some(token)) = storage.get_item("token") {
-                                                        spawn_local(async move {
-                                                            let request = Request::get(&format!("{}/api/imap/full_emails", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .send()
-                                                                .await;
-                                                            match request {
-                                                                Ok(response) => {
-                                                                    if response.status() == 200 {
-                                                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                                                            web_sys::console::log_1(&format!("IMAP full emails: {:?}", data).into());
-                                                                        }
-                                                                    } else {
-                                                                        error.set(Some("Failed to fetch full IMAP emails".to_string()));
-                                                                    }
-                                                                }
-                                                                Err(e) => {
-                                                                    error.set(Some(format!("Network error: {}", e)));
-                                                                }
+                                            // Auth handled by cookies
+                                            spawn_local(async move {
+                                                let request = Api::get("/api/imap/full_emails")
+                                                    .send()
+                                                    .await;
+                                                match request {
+                                                    Ok(response) => {
+                                                        if response.status() == 200 {
+                                                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                                                web_sys::console::log_1(&format!("IMAP full emails: {:?}", data).into());
                                                             }
-                                                        });
+                                                        } else {
+                                                            error.set(Some("Failed to fetch full IMAP emails".to_string()));
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        error.set(Some(format!("Network error: {}", e)));
                                                     }
                                                 }
-                                            }
+                                            });
                                         })
                                     }
                                     class="test-button"
@@ -391,53 +358,46 @@ pub fn email_connect(props: &EmailProps) -> Html {
                                         let error = error.clone();
                                         Callback::from(move |_: MouseEvent| {
                                             let error = error.clone();
-                                            if let Some(window) = web_sys::window() {
-                                                if let Ok(Some(storage)) = window.local_storage() {
-                                                    if let Ok(Some(token)) = storage.get_item("token") {
-                                                        spawn_local(async move {
-                                                            let previews_request = Request::get(&format!("{}/api/imap/previews", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .send()
-                                                                .await;
-                                                            match previews_request {
-                                                                Ok(response) => {
-                                                                    if response.status() == 200 {
-                                                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                                                            if let Some(previews) = data.get("previews").and_then(|p| p.as_array()) {
-                                                                                if let Some(first_message) = previews.first() {
-                                                                                    if let Some(id) = first_message.get("id").and_then(|i| i.as_str()) {
-                                                                                        let message_request = Request::get(&format!("{}/api/imap/message/{}", config::get_backend_url(), id))
-                                                                                            .header("Authorization", &format!("Bearer {}", token))
-                                                                                            .send()
-                                                                                            .await;
-                                                                                        match message_request {
-                                                                                            Ok(msg_response) => {
-                                                                                                if msg_response.status() == 200 {
-                                                                                                    if let Ok(msg_data) = msg_response.json::<serde_json::Value>().await {
-                                                                                                        web_sys::console::log_1(&format!("IMAP single message: {:?}", msg_data).into());
-                                                                                                    }
-                                                                                                } else {
-                                                                                                    error.set(Some("Failed to fetch single IMAP message".to_string()));
-                                                                                                }
-                                                                                            }
-                                                                                            Err(e) => {
-                                                                                                error.set(Some(format!("Network error: {}", e)));
-                                                                                            }
+                                            // Auth handled by cookies
+                                            spawn_local(async move {
+                                                let previews_request = Api::get("/api/imap/previews")
+                                                    .send()
+                                                    .await;
+                                                match previews_request {
+                                                    Ok(response) => {
+                                                        if response.status() == 200 {
+                                                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                                                if let Some(previews) = data.get("previews").and_then(|p| p.as_array()) {
+                                                                    if let Some(first_message) = previews.first() {
+                                                                        if let Some(id) = first_message.get("id").and_then(|i| i.as_str()) {
+                                                                            let message_request = Api::get(&format!("/api/imap/message/{}", id))
+                                                                                .send()
+                                                                                .await;
+                                                                            match message_request {
+                                                                                Ok(msg_response) => {
+                                                                                    if msg_response.status() == 200 {
+                                                                                        if let Ok(msg_data) = msg_response.json::<serde_json::Value>().await {
+                                                                                            web_sys::console::log_1(&format!("IMAP single message: {:?}", msg_data).into());
                                                                                         }
+                                                                                    } else {
+                                                                                        error.set(Some("Failed to fetch single IMAP message".to_string()));
                                                                                     }
+                                                                                }
+                                                                                Err(e) => {
+                                                                                    error.set(Some(format!("Network error: {}", e)));
                                                                                 }
                                                                             }
                                                                         }
                                                                     }
                                                                 }
-                                                                Err(e) => {
-                                                                    error.set(Some(format!("Network error: {}", e)));
-                                                                }
                                                             }
-                                                        });
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        error.set(Some(format!("Network error: {}", e)));
                                                     }
                                                 }
-                                            }
+                                            });
                                         })
                                     }
                                     class="test-button"
@@ -449,65 +409,58 @@ pub fn email_connect(props: &EmailProps) -> Html {
                                         let error = error.clone();
                                         Callback::from(move |_: MouseEvent| {
                                             let error = error.clone();
-                                            if let Some(window) = web_sys::window() {
-                                                if let Ok(Some(storage)) = window.local_storage() {
-                                                    if let Ok(Some(token)) = storage.get_item("token") {
-                                                        spawn_local(async move {
-                                                            // First fetch previews to get the latest email ID
-                                                            let previews_request = Request::get(&format!("{}/api/imap/previews?limit=1", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .send()
-                                                                .await;
-                                                            match previews_request {
-                                                                Ok(response) => {
-                                                                    if response.status() == 200 {
-                                                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                                                            if let Some(previews) = data.get("previews").and_then(|p| p.as_array()) {
-                                                                                if let Some(latest_email) = previews.first() {
-                                                                                    if let Some(id) = latest_email.get("id").and_then(|i| i.as_str()) {
-                                                                                        // Now send a test reply
-                                                                                        let reply_payload = json!({
-                                                                                            "email_id": id,
-                                                                                            "response_text": "This is a test reply from LightFriend!"
-                                                                                        });
-                                                                                        let reply_request = Request::post(&format!("{}/api/imap/reply", config::get_backend_url()))
-                                                                                            .header("Authorization", &format!("Bearer {}", token))
-                                                                                            .header("Content-Type", "application/json")
-                                                                                            .json(&reply_payload)
-                                                                                            .unwrap()
-                                                                                            .send()
-                                                                                            .await;
-                                                                                        match reply_request {
-                                                                                            Ok(reply_response) => {
-                                                                                                if reply_response.status() == 200 {
-                                                                                                    web_sys::console::log_1(&"Successfully sent test reply".into());
-                                                                                                } else {
-                                                                                                    if let Ok(error_data) = reply_response.json::<serde_json::Value>().await {
-                                                                                                        error.set(Some(format!("Failed to send reply: {}",
-                                                                                                            error_data.get("error").and_then(|e| e.as_str()).unwrap_or("Unknown error"))));
-                                                                                                    }
-                                                                                                }
-                                                                                            }
-                                                                                            Err(e) => {
-                                                                                                error.set(Some(format!("Network error while sending reply: {}", e)));
-                                                                                            }
+                                            // Auth handled by cookies
+                                            spawn_local(async move {
+                                                // First fetch previews to get the latest email ID
+                                                let previews_request = Api::get("/api/imap/previews?limit=1")
+                                                    .send()
+                                                    .await;
+                                                match previews_request {
+                                                    Ok(response) => {
+                                                        if response.status() == 200 {
+                                                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                                                if let Some(previews) = data.get("previews").and_then(|p| p.as_array()) {
+                                                                    if let Some(latest_email) = previews.first() {
+                                                                        if let Some(id) = latest_email.get("id").and_then(|i| i.as_str()) {
+                                                                            // Now send a test reply
+                                                                            let reply_payload = json!({
+                                                                                "email_id": id,
+                                                                                "response_text": "This is a test reply from LightFriend!"
+                                                                            });
+                                                                            let reply_request = Api::post("/api/imap/reply")
+                                                                                .header("Content-Type", "application/json")
+                                                                                .json(&reply_payload)
+                                                                                .unwrap()
+                                                                                .send()
+                                                                                .await;
+                                                                            match reply_request {
+                                                                                Ok(reply_response) => {
+                                                                                    if reply_response.status() == 200 {
+                                                                                        web_sys::console::log_1(&"Successfully sent test reply".into());
+                                                                                    } else {
+                                                                                        if let Ok(error_data) = reply_response.json::<serde_json::Value>().await {
+                                                                                            error.set(Some(format!("Failed to send reply: {}",
+                                                                                                error_data.get("error").and_then(|e| e.as_str()).unwrap_or("Unknown error"))));
                                                                                         }
                                                                                     }
                                                                                 }
+                                                                                Err(e) => {
+                                                                                    error.set(Some(format!("Network error while sending reply: {}", e)));
+                                                                                }
                                                                             }
                                                                         }
-                                                                    } else {
-                                                                        error.set(Some("Failed to fetch latest email".to_string()));
                                                                     }
                                                                 }
-                                                                Err(e) => {
-                                                                    error.set(Some(format!("Network error: {}", e)));
-                                                                }
                                                             }
-                                                        });
+                                                        } else {
+                                                            error.set(Some("Failed to fetch latest email".to_string()));
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        error.set(Some(format!("Network error: {}", e)));
                                                     }
                                                 }
-                                            }
+                                            });
                                         })
                                     }
                                     class="test-button"
@@ -519,41 +472,35 @@ pub fn email_connect(props: &EmailProps) -> Html {
                                         let error = error.clone();
                                         Callback::from(move |_: MouseEvent| {
                                             let error = error.clone();
-                                            if let Some(window) = web_sys::window() {
-                                                if let Ok(Some(storage)) = window.local_storage() {
-                                                    if let Ok(Some(token)) = storage.get_item("token") {
-                                                        spawn_local(async move {
-                                                            let payload = json!({
-                                                                "to": "rasmus@ahtava.com",
-                                                                "subject": "test email subject",
-                                                                "body": "testing body here"
-                                                            });
-                                                            let request = Request::post(&format!("{}/api/imap/send", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .header("Content-Type", "application/json")
-                                                                .json(&payload)
-                                                                .unwrap()
-                                                                .send()
-                                                                .await;
-                                                            match request {
-                                                                Ok(response) => {
-                                                                    if response.status() == 200 {
-                                                                        web_sys::console::log_1(&"Successfully sent test email".into());
-                                                                    } else {
-                                                                        if let Ok(error_data) = response.json::<serde_json::Value>().await {
-                                                                            error.set(Some(format!("Failed to send email: {}",
-                                                                                error_data.get("error").and_then(|e| e.as_str()).unwrap_or("Unknown error"))));
-                                                                        }
-                                                                    }
-                                                                }
-                                                                Err(e) => {
-                                                                    error.set(Some(format!("Network error: {}", e)));
-                                                                }
+                                            // Auth handled by cookies
+                                            spawn_local(async move {
+                                                let payload = json!({
+                                                    "to": "rasmus@ahtava.com",
+                                                    "subject": "test email subject",
+                                                    "body": "testing body here"
+                                                });
+                                                let request = Api::post("/api/imap/send")
+                                                    .header("Content-Type", "application/json")
+                                                    .json(&payload)
+                                                    .unwrap()
+                                                    .send()
+                                                    .await;
+                                                match request {
+                                                    Ok(response) => {
+                                                        if response.status() == 200 {
+                                                            web_sys::console::log_1(&"Successfully sent test email".into());
+                                                        } else {
+                                                            if let Ok(error_data) = response.json::<serde_json::Value>().await {
+                                                                error.set(Some(format!("Failed to send email: {}",
+                                                                    error_data.get("error").and_then(|e| e.as_str()).unwrap_or("Unknown error"))));
                                                             }
-                                                        });
+                                                        }
+                                                    }
+                                                    Err(e) => {
+                                                        error.set(Some(format!("Network error: {}", e)));
                                                     }
                                                 }
-                                            }
+                                            });
                                         })
                                     }
                                     class="test-button"

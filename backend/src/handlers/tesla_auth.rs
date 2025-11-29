@@ -5,17 +5,13 @@ use axum::{
     extract::{Query, State},
     response::{Json, Redirect},
     http::StatusCode,
-    Extension,
 };
 use tower_sessions::{session_store::SessionStore, session::{Id, Record}};
 use oauth2::{
     PkceCodeVerifier,
-    AuthorizationCode,
     CsrfToken,
     PkceCodeChallenge,
     Scope,
-    TokenResponse,
-    RefreshToken,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -25,7 +21,7 @@ use tracing::{info, error};
 
 use crate::{
     AppState,
-    models::user_models::{NewTesla, User},
+    models::user_models::NewTesla,
     utils::encryption::{encrypt, decrypt},
 };
 

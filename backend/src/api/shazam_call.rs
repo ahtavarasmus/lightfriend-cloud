@@ -16,7 +16,7 @@ use crate::repositories::user_repository::UserRepository;
 use crate::repositories::user_core::UserCore;
 use hound::{WavWriter, WavSpec};
 use std::io::Cursor;
-use tracing::{info, error};
+use tracing::info;
 
 pub type CallSessions = Arc<Mutex<HashMap<String, broadcast::Sender<Vec<u8>>>>>;
 pub type UserCallMap = Arc<Mutex<HashMap<String, String>>>; // callSid -> user_id

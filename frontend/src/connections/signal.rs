@@ -1,9 +1,8 @@
 use yew::prelude::*;
-use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::{window, Event};
 use wasm_bindgen::JsCast;
-use crate::config;
+use crate::utils::api::Api;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::js_sys;
 #[derive(Deserialize, Clone, Debug)]
@@ -36,35 +35,27 @@ pub fn signal_connect(props: &SignalProps) -> Html {
         Callback::from(move |_| {
             let connection_status = connection_status.clone();
             let error = error.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                spawn_local(async move {
-                    match Request::get(&format!("{}/api/auth/signal/status", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            match response.json::<SignalStatus>().await {
-                                Ok(status) => {
-                                    connection_status.set(Some(status));
-                                    error.set(None);
-                                }
-                                Err(_) => {
-                                    error.set(Some("Failed to parse Signal status".to_string()));
-                                }
+            spawn_local(async move {
+                match Api::get("/api/auth/signal/status")
+                    .send()
+                    .await
+                {
+                    Ok(response) => {
+                        match response.json::<SignalStatus>().await {
+                            Ok(status) => {
+                                connection_status.set(Some(status));
+                                error.set(None);
+                            }
+                            Err(_) => {
+                                error.set(Some("Failed to parse Signal status".to_string()));
                             }
                         }
-                        Err(_) => {
-                            error.set(Some("Failed to fetch Signal status".to_string()));
-                        }
                     }
-                });
-            }
+                    Err(_) => {
+                        error.set(Some("Failed to fetch Signal status".to_string()));
+                    }
+                }
+            });
         })
     };
     {
@@ -84,18 +75,11 @@ pub fn signal_connect(props: &SignalProps) -> Html {
             let qr_link = qr_link.clone();
             let error = error.clone();
             let fetch_status = fetch_status.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                is_connecting.set(true);
-                spawn_local(async move {
-                    match Request::get(&format!("{}/api/auth/signal/connect", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
+            is_connecting.set(true);
+            spawn_local(async move {
+                match Api::get("/api/auth/signal/connect")
+                    .send()
+                    .await
                     {
                         Ok(response) => {
                             match response.json::<SignalConnectionResponse>().await {
@@ -163,10 +147,9 @@ pub fn signal_connect(props: &SignalProps) -> Html {
                         Err(_) => {
                             is_connecting.set(false);
                             error.set(Some("Failed to start Signal connection".to_string()));
-                        }
                     }
-                });
-            }
+                }
+            });
         })
     };
     let disconnect = {
@@ -179,18 +162,11 @@ pub fn signal_connect(props: &SignalProps) -> Html {
             let error = error.clone();
             let is_disconnecting = is_disconnecting.clone();
             let show_disconnect_modal = show_disconnect_modal.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                is_disconnecting.set(true);
-                spawn_local(async move {
-                    match Request::delete(&format!("{}/api/auth/signal/disconnect", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
+            is_disconnecting.set(true);
+            spawn_local(async move {
+                match Api::delete("/api/auth/signal/disconnect")
+                    .send()
+                    .await
                     {
                         Ok(_) => {
                             connection_status.set(Some(SignalStatus {
@@ -204,12 +180,9 @@ pub fn signal_connect(props: &SignalProps) -> Html {
                             error.set(Some("Failed to disconnect Signal".to_string()));
                         }
                     }
-                    is_disconnecting.set(false);
-                    show_disconnect_modal.set(false);
-                });
-            } else {
+                is_disconnecting.set(false);
                 show_disconnect_modal.set(false);
-            }
+            });
         })
     };
     html! {
@@ -327,15 +300,8 @@ pub fn signal_connect(props: &SignalProps) -> Html {
                                                 let fetch_status = fetch_status.clone();
                                                 Callback::from(move |_| {
                                                     let fetch_status = fetch_status.clone();
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
-                                                            match Request::post(&format!("{}/api/auth/signal/resync", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
+                                                    spawn_local(async move {
+                                                            match Api::post("/api/auth/signal/resync")
                                                                 .send()
                                                                 .await
                                                             {
@@ -348,7 +314,6 @@ pub fn signal_connect(props: &SignalProps) -> Html {
                                                                 }
                                                             }
                                                         });
-                                                    }
                                                 })
                                             }} class="resync-button">
                                                 {"Resync Signal"}
@@ -365,15 +330,8 @@ pub fn signal_connect(props: &SignalProps) -> Html {
                                         <>
                                             <button onclick={{
                                                 Callback::from(move |_| {
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
-                                                            match Request::get(&format!("{}/api/signal/test-messages", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
+                                                    spawn_local(async move {
+                                                            match Api::get("/api/signal/test-messages")
                                                                 .send()
                                                                 .await
                                                             {
@@ -401,26 +359,18 @@ pub fn signal_connect(props: &SignalProps) -> Html {
                                                                 }
                                                             }
                                                         });
-                                                    }
                                                 })
                                             }} class="test-button">
                                                 {"Test Fetch Messages"}
                                             </button>
                                             <button onclick={{
                                                 Callback::from(move |_| {
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
+                                                    spawn_local(async move {
                                                             let request_body = serde_json::json!({
                                                                 "chat_name": "test",
                                                                 "message": "testing"
                                                             });
-                                                            match Request::post(&format!("{}/api/signal/send", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
+                                                            match Api::post("/api/signal/send")
                                                                 .header("Content-Type", "application/json")
                                                                 .body(serde_json::to_string(&request_body).unwrap())
                                                                 .send()
@@ -442,25 +392,17 @@ pub fn signal_connect(props: &SignalProps) -> Html {
                                                                 }
                                                             }
                                                         });
-                                                    }
                                                 })
                                             }} class="test-button test-send-button">
                                                 {"Test Send Message"}
                                             </button>
                                             <button onclick={{
                                                 Callback::from(move |_| {
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
+                                                    spawn_local(async move {
                                                             let request_body = serde_json::json!({
                                                                 "search_term": "test"
                                                             });
-                                                            match Request::post(&format!("{}/api/signal/search-rooms", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
+                                                            match Api::post("/api/signal/search-rooms")
                                                                 .header("Content-Type", "application/json")
                                                                 .body(serde_json::to_string(&request_body).unwrap())
                                                                 .send()
@@ -482,7 +424,6 @@ pub fn signal_connect(props: &SignalProps) -> Html {
                                                                 }
                                                             }
                                                         });
-                                                    }
                                                 })
                                             }} class="test-button test-search-button">
                                                 {"Test Search Rooms"}

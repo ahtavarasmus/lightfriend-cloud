@@ -71,7 +71,6 @@ where
 }
 
 
-use std::error::Error;
 use tracing::error;
 
 use hmac::{Hmac, Mac};

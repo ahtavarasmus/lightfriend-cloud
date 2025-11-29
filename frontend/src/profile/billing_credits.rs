@@ -1,6 +1,7 @@
 use yew::prelude::*;
 use web_sys::{HtmlInputElement, window};
 use crate::config;
+use crate::utils::api::Api;
 use serde_json::{Value, json};
 use gloo_net::http::Request;
 use crate::profile::billing_models::{ // Import from the new file
@@ -61,69 +62,51 @@ pub fn BillingPage(props: &BillingPageProps) -> Html {
             let settings = settings.clone();
            
             spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
+                // Update auto-topup settings
+                match Api::post(&format!("/api/billing/update-auto-topup/{}", user_id))
+                    .header("Content-Type", "application/json")
+                    .json(&settings)
+                    .expect("Failed to serialize auto top-up settings")
+                    .send()
+                    .await
                 {
-                    // Update auto-topup settings
-                    match Request::post(&format!("{}/api/billing/update-auto-topup/{}", config::get_backend_url(), user_id))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .header("Content-Type", "application/json")
-                        .json(&settings)
-                        .expect("Failed to serialize auto top-up settings")
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            if response.ok() {
-                                if let Ok(data) = response.json::<ApiResponse>().await {
-                                    success.set(Some(data.message));
-                                    // Update local states immediately
-                                    auto_topup_active.set(settings.active);
-                                    if let Some(amount) = settings.amount {
-                                        auto_topup_amount.set(amount);
-                                        saved_auto_topup_amount.set(amount); // Update saved amount locally
-                                    }
-                                    // Fetch updated user profile to ensure server state matches
-                                    match Request::get(&format!("{}/api/profile", config::get_backend_url()))
-                                        .header("Authorization", &format!("Bearer {}", token))
-                                        .send()
-                                        .await
-                                    {
-                                        Ok(profile_response) => {
-                                            if profile_response.ok() {
-                                                match profile_response.json::<UserProfile>().await {
-                                                    Ok(updated_profile) => {
-                                                        user_profile_state.set(updated_profile.clone());
-                                                        // Update saved amount with the server's value
-                                                        if let Some(new_amount) = updated_profile.charge_back_to {
-                                                            saved_auto_topup_amount.set(new_amount);
-                                                        }
-                                                    }
-                                                    Err(e) => {
-                                                        error.set(Some(format!("Failed to parse updated profile: {:?}", e)));
-                                                        // Clear error after 3 seconds
-                                                        let error_clone = error.clone();
-                                                        spawn_local(async move {
-                                                            TimeoutFuture::new(3_000).await;
-                                                            error_clone.set(None);
-                                                        });
+                    Ok(response) => {
+                        if response.ok() {
+                            if let Ok(data) = response.json::<ApiResponse>().await {
+                                success.set(Some(data.message));
+                                // Update local states immediately
+                                auto_topup_active.set(settings.active);
+                                if let Some(amount) = settings.amount {
+                                    auto_topup_amount.set(amount);
+                                    saved_auto_topup_amount.set(amount); // Update saved amount locally
+                                }
+                                // Fetch updated user profile to ensure server state matches
+                                match Api::get("/api/profile")
+                                    .send()
+                                    .await
+                                {
+                                    Ok(profile_response) => {
+                                        if profile_response.ok() {
+                                            match profile_response.json::<UserProfile>().await {
+                                                Ok(updated_profile) => {
+                                                    user_profile_state.set(updated_profile.clone());
+                                                    // Update saved amount with the server's value
+                                                    if let Some(new_amount) = updated_profile.charge_back_to {
+                                                        saved_auto_topup_amount.set(new_amount);
                                                     }
                                                 }
-                                            } else {
-                                                error.set(Some("Failed to refresh user profile".to_string()));
-                                                // Clear error after 3 seconds
-                                                let error_clone = error.clone();
-                                                spawn_local(async move {
-                                                    TimeoutFuture::new(3_000).await;
-                                                    error_clone.set(None);
-                                                });
+                                                Err(e) => {
+                                                    error.set(Some(format!("Failed to parse updated profile: {:?}", e)));
+                                                    // Clear error after 3 seconds
+                                                    let error_clone = error.clone();
+                                                    spawn_local(async move {
+                                                        TimeoutFuture::new(3_000).await;
+                                                        error_clone.set(None);
+                                                    });
+                                                }
                                             }
-                                        }
-                                        Err(e) => {
-                                            error.set(Some(format!("Network error refreshing profile: {:?}", e)));
+                                        } else {
+                                            error.set(Some("Failed to refresh user profile".to_string()));
                                             // Clear error after 3 seconds
                                             let error_clone = error.clone();
                                             spawn_local(async move {
@@ -132,19 +115,20 @@ pub fn BillingPage(props: &BillingPageProps) -> Html {
                                             });
                                         }
                                     }
-                                    TimeoutFuture::new(3_000).await;
-                                    success.set(None); // Clear success message after 3 seconds
-                                } else {
-                                    error.set(Some("Failed to parse response".to_string()));
-                                    // Clear error after 3 seconds
-                                    let error_clone = error.clone();
-                                    spawn_local(async move {
-                                        TimeoutFuture::new(3_000).await;
-                                        error_clone.set(None);
-                                    });
+                                    Err(e) => {
+                                        error.set(Some(format!("Network error refreshing profile: {:?}", e)));
+                                        // Clear error after 3 seconds
+                                        let error_clone = error.clone();
+                                        spawn_local(async move {
+                                            TimeoutFuture::new(3_000).await;
+                                            error_clone.set(None);
+                                        });
+                                    }
                                 }
+                                TimeoutFuture::new(3_000).await;
+                                success.set(None); // Clear success message after 3 seconds
                             } else {
-                                error.set(Some("Failed to update auto top-up settings".to_string()));
+                                error.set(Some("Failed to parse response".to_string()));
                                 // Clear error after 3 seconds
                                 let error_clone = error.clone();
                                 spawn_local(async move {
@@ -152,9 +136,8 @@ pub fn BillingPage(props: &BillingPageProps) -> Html {
                                     error_clone.set(None);
                                 });
                             }
-                        }
-                        Err(e) => {
-                            error.set(Some(format!("Network error occurred: {:?}", e)));
+                        } else {
+                            error.set(Some("Failed to update auto top-up settings".to_string()));
                             // Clear error after 3 seconds
                             let error_clone = error.clone();
                             spawn_local(async move {
@@ -163,14 +146,15 @@ pub fn BillingPage(props: &BillingPageProps) -> Html {
                             });
                         }
                     }
-                } else {
-                    error.set(Some("Authentication token not found".to_string()));
-                    // Clear error after 3 seconds
-                    let error_clone = error.clone();
-                    spawn_local(async move {
-                        TimeoutFuture::new(3_000).await;
-                        error_clone.set(None);
-                    });
+                    Err(e) => {
+                        error.set(Some(format!("Network error occurred: {:?}", e)));
+                        // Clear error after 3 seconds
+                        let error_clone = error.clone();
+                        spawn_local(async move {
+                            TimeoutFuture::new(3_000).await;
+                            error_clone.set(None);
+                        });
+                    }
                 }
             });
         })
@@ -205,69 +189,53 @@ pub fn BillingPage(props: &BillingPageProps) -> Html {
             let buy_credits_amount = buy_credits_amount.clone();
            
             spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
+                let amount_dollars = *buy_credits_amount; // Safely dereference the cloned handle
+                let request = BuyCreditsRequest { amount_dollars };
+                match Api::post(&format!("/api/stripe/checkout-session/{}", user_id))
+                    .header("Content-Type", "application/json")
+                    .json(&request)
+                    .expect("Failed to serialize buy credits request")
+                    .send()
+                    .await
                 {
-                    let amount_dollars = *buy_credits_amount; // Safely dereference the cloned handle
-                    let request = BuyCreditsRequest { amount_dollars };
-                    match Request::post(&format!("{}/api/stripe/checkout-session/{}", config::get_backend_url(), user_id))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .header("Content-Type", "application/json")
-                        .json(&request)
-                        .expect("Failed to serialize buy credits request")
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            if response.ok() {
-                                if let Ok(data) = response.json::<Value>().await {
-                                    if let Some(url) = data.get("url").and_then(|v| v.as_str()) {
-                                        // Redirect to Stripe Checkout
-                                        web_sys::window()
-                                            .unwrap()
-                                            .location()
-                                            .set_href(url)
-                                            .unwrap_or_else(|e| {
-                                                error.set(Some(format!("Failed to redirect to Stripe: {:?}", e)));
-                                            });
-                                        show_confirmation_modal.set(false); // Close confirmation modal
-                                    } else {
-                                        error.set(Some("No URL in Stripe response".to_string()));
-                                    }
+                    Ok(response) => {
+                        if response.ok() {
+                            if let Ok(data) = response.json::<Value>().await {
+                                if let Some(url) = data.get("url").and_then(|v| v.as_str()) {
+                                    // Redirect to Stripe Checkout
+                                    web_sys::window()
+                                        .unwrap()
+                                        .location()
+                                        .set_href(url)
+                                        .unwrap_or_else(|e| {
+                                            error.set(Some(format!("Failed to redirect to Stripe: {:?}", e)));
+                                        });
+                                    show_confirmation_modal.set(false); // Close confirmation modal
                                 } else {
-                                    error.set(Some("Failed to parse Stripe response".to_string()));
+                                    error.set(Some("No URL in Stripe response".to_string()));
                                 }
                             } else {
-                                error.set(Some("Failed to create Stripe Checkout session".to_string()));
+                                error.set(Some("Failed to parse Stripe response".to_string()));
                             }
-                            // Clear error after 3 seconds
-                            let error_clone = error.clone();
-                            spawn_local(async move {
-                                TimeoutFuture::new(3_000).await;
-                                error_clone.set(None);
-                            });
+                        } else {
+                            error.set(Some("Failed to create Stripe Checkout session".to_string()));
                         }
-                        Err(e) => {
-                            error.set(Some(format!("Network error occurred: {:?}", e)));
-                            // Clear error after 3 seconds
-                            let error_clone = error.clone();
-                            spawn_local(async move {
-                                TimeoutFuture::new(3_000).await;
-                                error_clone.set(None);
-                            });
-                        }
+                        // Clear error after 3 seconds
+                        let error_clone = error.clone();
+                        spawn_local(async move {
+                            TimeoutFuture::new(3_000).await;
+                            error_clone.set(None);
+                        });
                     }
-                } else {
-                    error.set(Some("Authentication token not found".to_string()));
-                    // Clear error after 3 seconds
-                    let error_clone = error.clone();
-                    spawn_local(async move {
-                        TimeoutFuture::new(3_000).await;
-                        error_clone.set(None);
-                    });
+                    Err(e) => {
+                        error.set(Some(format!("Network error occurred: {:?}", e)));
+                        // Clear error after 3 seconds
+                        let error_clone = error.clone();
+                        spawn_local(async move {
+                            TimeoutFuture::new(3_000).await;
+                            error_clone.set(None);
+                        });
+                    }
                 }
             });
         })
@@ -296,62 +264,46 @@ pub fn BillingPage(props: &BillingPageProps) -> Html {
             if need_refresh {
                 spawn_local(async move {
                     let mut refresh_success = true;
-                    if let Some(token) = window
-                        .local_storage()
-                        .ok()
-                        .flatten()
-                        .and_then(|storage| storage.get_item("token").ok())
-                        .flatten()
-                    {
-                        if let Some(session_id) = session_id_opt.clone() {
-                            match Request::post(&format!("{}/api/stripe/confirm-checkout", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .header("Content-Type", "application/json")
-                                .json(&json!({ "session_id": session_id }))
-                                .expect("Failed to serialize session ID")
-                                .send()
-                                .await
-                            {
-                                Ok(response) => {
-                                    if response.ok() {
-                                        if let Ok(data) = response.json::<ApiResponse>().await {
-                                            success.set(Some(data.message));
-                                        } else {
-                                            error.set(Some("Failed to parse confirmation response".to_string()));
-                                            refresh_success = false;
-                                        }
+                    if let Some(session_id) = session_id_opt.clone() {
+                        match Api::post("/api/stripe/confirm-checkout")
+                            .header("Content-Type", "application/json")
+                            .json(&json!({ "session_id": session_id }))
+                            .expect("Failed to serialize session ID")
+                            .send()
+                            .await
+                        {
+                            Ok(response) => {
+                                if response.ok() {
+                                    if let Ok(data) = response.json::<ApiResponse>().await {
+                                        success.set(Some(data.message));
                                     } else {
-                                        error.set(Some("Failed to confirm Stripe payment".to_string()));
+                                        error.set(Some("Failed to parse confirmation response".to_string()));
                                         refresh_success = false;
                                     }
-                                }
-                                Err(e) => {
-                                    error.set(Some(format!("Network error confirming payment: {:?}", e)));
+                                } else {
+                                    error.set(Some("Failed to confirm Stripe payment".to_string()));
                                     refresh_success = false;
                                 }
                             }
+                            Err(e) => {
+                                error.set(Some(format!("Network error confirming payment: {:?}", e)));
+                                refresh_success = false;
+                            }
                         }
-                        if refresh_success {
-                            let message = if session_id_opt.is_some() {
-                                "Credits added successfully! Reloading..."
-                            } else {
-                                "Subscription updated successfully! Reloading..."
-                            };
-                            success.set(Some(message.to_string()));
-                            TimeoutFuture::new(10_000).await;
-                            success.set(None);
-                            let history = window.history().expect("no history");
-                            history.replace_state_with_url(&JsValue::NULL, "", Some("/billing")).expect("replace state failed");
-                            window.location().reload().expect("reload failed");
+                    }
+                    if refresh_success {
+                        let message = if session_id_opt.is_some() {
+                            "Credits added successfully! Reloading..."
                         } else {
-                            let error_clone = error.clone();
-                            spawn_local(async move {
-                                TimeoutFuture::new(10_000).await;
-                                error_clone.set(None);
-                            });
-                        }
+                            "Subscription updated successfully! Reloading..."
+                        };
+                        success.set(Some(message.to_string()));
+                        TimeoutFuture::new(10_000).await;
+                        success.set(None);
+                        let history = window.history().expect("no history");
+                        history.replace_state_with_url(&JsValue::NULL, "", Some("/billing")).expect("replace state failed");
+                        window.location().reload().expect("reload failed");
                     } else {
-                        error.set(Some("Authentication token not found".to_string()));
                         let error_clone = error.clone();
                         spawn_local(async move {
                             TimeoutFuture::new(10_000).await;
@@ -373,67 +325,51 @@ pub fn BillingPage(props: &BillingPageProps) -> Html {
             let error = error.clone();
             let success = success.clone();
             spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
+                match Api::get(&format!("/api/stripe/customer-portal/{}", user_id))
+                    .header("Content-Type", "application/json")
+                    .send()
+                    .await
                 {
-                    match Request::get(&format!("{}/api/stripe/customer-portal/{}", config::get_backend_url(), user_id))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .header("Content-Type", "application/json")
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            if response.ok() {
-                                if let Ok(data) = response.json::<Value>().await {
-                                    if let Some(url) = data.get("url").and_then(|v| v.as_str()) {
-                                        // Redirect to Stripe Customer Portal
-                                        web_sys::window()
-                                            .unwrap()
-                                            .location()
-                                            .set_href(url)
-                                            .unwrap_or_else(|e| {
-                                                error.set(Some(format!("Failed to redirect to Stripe Customer Portal: {:?}", e)));
-                                            });
-                                        success.set(Some("Redirecting to Stripe Customer Portal".to_string()));
-                                    } else {
-                                        error.set(Some("No URL in Customer Portal response".to_string()));
-                                    }
+                    Ok(response) => {
+                        if response.ok() {
+                            if let Ok(data) = response.json::<Value>().await {
+                                if let Some(url) = data.get("url").and_then(|v| v.as_str()) {
+                                    // Redirect to Stripe Customer Portal
+                                    web_sys::window()
+                                        .unwrap()
+                                        .location()
+                                        .set_href(url)
+                                        .unwrap_or_else(|e| {
+                                            error.set(Some(format!("Failed to redirect to Stripe Customer Portal: {:?}", e)));
+                                        });
+                                    success.set(Some("Redirecting to Stripe Customer Portal".to_string()));
                                 } else {
-                                    error.set(Some("Failed to parse Customer Portal response".to_string()));
+                                    error.set(Some("No URL in Customer Portal response".to_string()));
                                 }
                             } else {
-                                error.set(Some("Failed to create Customer Portal session".to_string()));
+                                error.set(Some("Failed to parse Customer Portal response".to_string()));
                             }
-                            // Clear messages after 3 seconds
-                            let error_clone = error.clone();
-                            let success_clone = success.clone();
-                            spawn_local(async move {
-                                TimeoutFuture::new(3_000).await;
-                                error_clone.set(None);
-                                success_clone.set(None);
-                            });
+                        } else {
+                            error.set(Some("Failed to create Customer Portal session".to_string()));
                         }
-                        Err(e) => {
-                            error.set(Some(format!("Network error occurred: {:?}", e)));
-                            // Clear error after 3 seconds
-                            let error_clone = error.clone();
-                            spawn_local(async move {
-                                TimeoutFuture::new(3_000).await;
-                                error_clone.set(None);
-                            });
-                        }
+                        // Clear messages after 3 seconds
+                        let error_clone = error.clone();
+                        let success_clone = success.clone();
+                        spawn_local(async move {
+                            TimeoutFuture::new(3_000).await;
+                            error_clone.set(None);
+                            success_clone.set(None);
+                        });
                     }
-                } else {
-                    error.set(Some("Authentication token not found".to_string()));
-                    // Clear error after 3 seconds
-                    let error_clone = error.clone();
-                    spawn_local(async move {
-                        TimeoutFuture::new(3_000).await;
-                        error_clone.set(None);
-                    });
+                    Err(e) => {
+                        error.set(Some(format!("Network error occurred: {:?}", e)));
+                        // Clear error after 3 seconds
+                        let error_clone = error.clone();
+                        spawn_local(async move {
+                            TimeoutFuture::new(3_000).await;
+                            error_clone.set(None);
+                        });
+                    }
                 }
             });
         })

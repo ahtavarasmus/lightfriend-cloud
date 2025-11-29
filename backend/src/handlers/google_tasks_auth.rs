@@ -67,7 +67,7 @@ pub async fn google_tasks_login(
 
     let state_token = format!("{}:{}", record.id.0, csrf_token.secret());
 
-    let mut auth_builder = state
+    let auth_builder = state
         .google_tasks_oauth_client
         .authorize_url(|| CsrfToken::new(state_token.clone()))
         .add_scope(Scope::new("https://www.googleapis.com/auth/tasks".to_string()))

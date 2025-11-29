@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Json, State},
+    extract::State,
     http::StatusCode,
     response::Json as AxumJson,
 };

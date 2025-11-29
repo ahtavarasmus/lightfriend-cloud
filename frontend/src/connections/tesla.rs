@@ -1,9 +1,8 @@
 use yew::prelude::*;
-use gloo_net::http::Request;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::window;
 use yew::functional::UseStateHandle;
-use crate::config;
+use crate::utils::api::Api;
 use wasm_bindgen::JsCast;
 use serde::Deserialize;
 
@@ -69,34 +68,21 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
         use_effect_with_deps(
             move |_| {
                 spawn_local(async move {
-                    let token = if let Some(window) = window() {
-                        if let Ok(Some(storage)) = window.local_storage() {
-                            storage.get_item("token").ok().flatten()
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-
-                    if let Some(token) = token {
-                        match Request::get(&format!("{}/api/auth/tesla/status", config::get_backend_url()))
-                            .header("Authorization", &format!("Bearer {}", token))
-                            .send()
-                            .await
-                        {
-                            Ok(response) => {
-                                if response.ok() {
-                                    if let Ok(status) = response.json::<serde_json::Value>().await {
-                                        if let Some(has_tesla) = status["has_tesla"].as_bool() {
-                                            tesla_connected.set(has_tesla);
-                                        }
+                    match Api::get("/api/auth/tesla/status")
+                        .send()
+                        .await
+                    {
+                        Ok(response) => {
+                            if response.ok() {
+                                if let Ok(status) = response.json::<serde_json::Value>().await {
+                                    if let Some(has_tesla) = status["has_tesla"].as_bool() {
+                                        tesla_connected.set(has_tesla);
                                     }
                                 }
                             }
-                            Err(e) => {
-                                error.set(Some(format!("Failed to check Tesla status: {}", e)));
-                            }
+                        }
+                        Err(e) => {
+                            error.set(Some(format!("Failed to check Tesla status: {}", e)));
                         }
                     }
                 });
@@ -118,40 +104,27 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
             move |connected| {
                 if **connected {
                     spawn_local(async move {
-                        let token = if let Some(window) = window() {
-                            if let Ok(Some(storage)) = window.local_storage() {
-                                storage.get_item("token").ok().flatten()
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
-
-                        if let Some(token) = token {
-                            match Request::get(&format!("{}/api/auth/tesla/virtual-key", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await
-                            {
-                                Ok(response) => {
-                                    if response.ok() {
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            if let Some(link) = data["pairing_link"].as_str() {
-                                                pairing_link.set(Some(link.to_string()));
-                                            }
-                                            if let Some(qr_url) = data["qr_code_url"].as_str() {
-                                                qr_code_url.set(Some(qr_url.to_string()));
-                                            }
-
-                                            // Don't auto-show pairing instructions - user can click to see them
-                                            show_pairing.set(false);
+                        match Api::get("/api/auth/tesla/virtual-key")
+                            .send()
+                            .await
+                        {
+                            Ok(response) => {
+                                if response.ok() {
+                                    if let Ok(data) = response.json::<serde_json::Value>().await {
+                                        if let Some(link) = data["pairing_link"].as_str() {
+                                            pairing_link.set(Some(link.to_string()));
                                         }
+                                        if let Some(qr_url) = data["qr_code_url"].as_str() {
+                                            qr_code_url.set(Some(qr_url.to_string()));
+                                        }
+
+                                        // Don't auto-show pairing instructions - user can click to see them
+                                        show_pairing.set(false);
                                     }
                                 }
-                                Err(e) => {
-                                    error.set(Some(format!("Failed to fetch pairing info: {}", e)));
-                                }
+                            }
+                            Err(e) => {
+                                error.set(Some(format!("Failed to fetch pairing info: {}", e)));
                             }
                         }
                     });
@@ -172,45 +145,32 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
             move |connected| {
                 if **connected {
                     spawn_local(async move {
-                        let token = if let Some(window) = window() {
-                            if let Ok(Some(storage)) = window.local_storage() {
-                                storage.get_item("token").ok().flatten()
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        };
+                        match Api::get("/api/tesla/vehicles")
+                            .send()
+                            .await
+                        {
+                            Ok(response) => {
+                                if response.ok() {
+                                    if let Ok(data) = response.json::<serde_json::Value>().await {
+                                        if let Some(vehicles_array) = data["vehicles"].as_array() {
+                                            let vehicles: Vec<VehicleInfo> = vehicles_array
+                                                .iter()
+                                                .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                                                .collect();
 
-                        if let Some(token) = token {
-                            match Request::get(&format!("{}/api/tesla/vehicles", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await
-                            {
-                                Ok(response) => {
-                                    if response.ok() {
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            if let Some(vehicles_array) = data["vehicles"].as_array() {
-                                                let vehicles: Vec<VehicleInfo> = vehicles_array
-                                                    .iter()
-                                                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
-                                                    .collect();
+                                            // Find selected vehicle name
+                                            let selected_name = vehicles.iter()
+                                                .find(|v| v.selected)
+                                                .map(|v| v.name.clone());
 
-                                                // Find selected vehicle name
-                                                let selected_name = vehicles.iter()
-                                                    .find(|v| v.selected)
-                                                    .map(|v| v.name.clone());
-
-                                                available_vehicles.set(vehicles);
-                                                selected_vehicle_name.set(selected_name);
-                                            }
+                                            available_vehicles.set(vehicles);
+                                            selected_vehicle_name.set(selected_name);
                                         }
                                     }
                                 }
-                                Err(_) => {
-                                    // Silently fail - vehicles list is optional
-                                }
+                            }
+                            Err(_) => {
+                                // Silently fail - vehicles list is optional
                             }
                         }
                     });
@@ -284,47 +244,32 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
 
             connecting.set(true);
             spawn_local(async move {
-                let token = if let Some(window) = window() {
-                    if let Ok(Some(storage)) = window.local_storage() {
-                        storage.get_item("token").ok().flatten()
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-
-                if let Some(token) = token {
-                    match Request::get(&format!("{}/api/auth/tesla/login", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            if response.ok() {
-                                if let Ok(data) = response.json::<serde_json::Value>().await {
-                                    if let Some(auth_url) = data["auth_url"].as_str() {
-                                        if let Some(window) = window() {
-                                            let _ = window.location().set_href(auth_url);
-                                        }
+                match Api::get("/api/auth/tesla/login")
+                    .send()
+                    .await
+                {
+                    Ok(response) => {
+                        if response.ok() {
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                if let Some(auth_url) = data["auth_url"].as_str() {
+                                    if let Some(window) = window() {
+                                        let _ = window.location().set_href(auth_url);
                                     }
-                                }
-                            } else {
-                                if let Ok(error_data) = response.json::<serde_json::Value>().await {
-                                    if let Some(error_msg) = error_data["error"].as_str() {
-                                        error.set(Some(error_msg.to_string()));
-                                    }
-                                } else {
-                                    error.set(Some("Failed to initiate Tesla login".to_string()));
                                 }
                             }
-                        }
-                        Err(e) => {
-                            error.set(Some(format!("Network error: {}", e)));
+                        } else {
+                            if let Ok(error_data) = response.json::<serde_json::Value>().await {
+                                if let Some(error_msg) = error_data["error"].as_str() {
+                                    error.set(Some(error_msg.to_string()));
+                                }
+                            } else {
+                                error.set(Some("Failed to initiate Tesla login".to_string()));
+                            }
                         }
                     }
-                } else {
-                    error.set(Some("No auth token found".to_string()));
+                    Err(e) => {
+                        error.set(Some(format!("Network error: {}", e)));
+                    }
                 }
                 connecting.set(false);
             });
@@ -392,60 +337,53 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
 
             is_disconnecting.set(true);
 
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        spawn_local(async move {
-                            let request = Request::delete(&format!("{}/api/auth/tesla/connection", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await;
-                            match request {
-                                Ok(response) => {
-                                    if response.ok() {
-                                        // Clear all Tesla-related state
-                                        tesla_connected.set(false);
-                                        pairing_link.set(None);
-                                        qr_code_url.set(None);
-                                        show_pairing.set(false);
-                                        battery_level.set(None);
-                                        battery_range.set(None);
-                                        charging_state.set(None);
-                                        is_locked.set(None);
-                                        inside_temp.set(None);
-                                        outside_temp.set(None);
-                                        is_climate_on.set(None);
-                                        is_front_defroster_on.set(None);
-                                        is_rear_defroster_on.set(None);
-                                        available_vehicles.set(Vec::new());
-                                        selected_vehicle_name.set(None);
-                                        show_vehicle_selector.set(false);
-                                        vehicle_pairing_vin.set(None);
-                                        vehicle_pairing_link.set(None);
-                                        vehicle_qr_code_url.set(None);
-                                        command_result.set(None);
-                                        show_disconnect_modal.set(false);
-                                        is_disconnecting.set(false);
-                                    } else {
-                                        if let Ok(error_data) = response.json::<serde_json::Value>().await {
-                                            if let Some(error_msg) = error_data.get("error").and_then(|e| e.as_str()) {
-                                                error.set(Some(error_msg.to_string()));
-                                            } else {
-                                                error.set(Some(format!("Failed to delete connection: {}", response.status())));
-                                            }
-                                        }
-                                        is_disconnecting.set(false);
-                                    }
-                                }
-                                Err(e) => {
-                                    error.set(Some(format!("Network error: {}", e)));
-                                    is_disconnecting.set(false);
+            spawn_local(async move {
+                let request = Api::delete("/api/auth/tesla/connection")
+                    .send()
+                    .await;
+                match request {
+                    Ok(response) => {
+                        if response.ok() {
+                            // Clear all Tesla-related state
+                            tesla_connected.set(false);
+                            pairing_link.set(None);
+                            qr_code_url.set(None);
+                            show_pairing.set(false);
+                            battery_level.set(None);
+                            battery_range.set(None);
+                            charging_state.set(None);
+                            is_locked.set(None);
+                            inside_temp.set(None);
+                            outside_temp.set(None);
+                            is_climate_on.set(None);
+                            is_front_defroster_on.set(None);
+                            is_rear_defroster_on.set(None);
+                            available_vehicles.set(Vec::new());
+                            selected_vehicle_name.set(None);
+                            show_vehicle_selector.set(false);
+                            vehicle_pairing_vin.set(None);
+                            vehicle_pairing_link.set(None);
+                            vehicle_qr_code_url.set(None);
+                            command_result.set(None);
+                            show_disconnect_modal.set(false);
+                            is_disconnecting.set(false);
+                        } else {
+                            if let Ok(error_data) = response.json::<serde_json::Value>().await {
+                                if let Some(error_msg) = error_data.get("error").and_then(|e| e.as_str()) {
+                                    error.set(Some(error_msg.to_string()));
+                                } else {
+                                    error.set(Some(format!("Failed to delete connection: {}", response.status())));
                                 }
                             }
-                        });
+                            is_disconnecting.set(false);
+                        }
+                    }
+                    Err(e) => {
+                        error.set(Some(format!("Network error: {}", e)));
+                        is_disconnecting.set(false);
                     }
                 }
-            }
+            });
         })
     };
 
@@ -460,64 +398,57 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
             let command_result = command_result.clone();
             let is_locked = is_locked.clone();
 
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        lock_loading.set(true);
-                        command_result.set(None);
+            lock_loading.set(true);
+            command_result.set(None);
 
-                        spawn_local(async move {
-                            // Determine command based on current lock state
-                            let command = match *is_locked {
-                                Some(true) => "unlock",  // If locked, unlock it
-                                Some(false) => "lock",   // If unlocked, lock it
-                                None => "lock",          // If unknown, default to lock
-                            };
+            spawn_local(async move {
+                // Determine command based on current lock state
+                let command = match *is_locked {
+                    Some(true) => "unlock",  // If locked, unlock it
+                    Some(false) => "lock",   // If unlocked, lock it
+                    None => "lock",          // If unknown, default to lock
+                };
 
-                            let body = serde_json::json!({
-                                "command": command
-                            });
+                let body = serde_json::json!({
+                    "command": command
+                });
 
-                            let request = match Request::post(&format!("{}/api/tesla/command", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .json(&body)
-                            {
-                                Ok(req) => req.send().await,
-                                Err(e) => {
-                                    command_result.set(Some(format!("Failed to create request: {}", e)));
-                                    lock_loading.set(false);
-                                    return;
-                                }
-                            };
+                let request = match Api::post("/api/tesla/command")
+                    .json(&body)
+                {
+                    Ok(req) => req.send().await,
+                    Err(e) => {
+                        command_result.set(Some(format!("Failed to create request: {}", e)));
+                        lock_loading.set(false);
+                        return;
+                    }
+                };
 
-                            match request {
-                                Ok(response) => {
-                                    if response.ok() {
-                                        // Update state optimistically after successful command
-                                        match command {
-                                            "lock" => is_locked.set(Some(true)),
-                                            "unlock" => is_locked.set(Some(false)),
-                                            _ => {}
-                                        }
+                match request {
+                    Ok(response) => {
+                        if response.ok() {
+                            // Update state optimistically after successful command
+                            match command {
+                                "lock" => is_locked.set(Some(true)),
+                                "unlock" => is_locked.set(Some(false)),
+                                _ => {}
+                            }
 
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
-                                                command_result.set(Some(msg.to_string()));
-                                            }
-                                        }
-                                    } else {
-                                        command_result.set(Some("Failed to execute lock command".to_string()));
-                                    }
-                                }
-                                Err(e) => {
-                                    command_result.set(Some(format!("Network error: {}", e)));
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
+                                    command_result.set(Some(msg.to_string()));
                                 }
                             }
-                            lock_loading.set(false);
-                        });
+                        } else {
+                            command_result.set(Some("Failed to execute lock command".to_string()));
+                        }
+                    }
+                    Err(e) => {
+                        command_result.set(Some(format!("Network error: {}", e)));
                     }
                 }
-            }
+                lock_loading.set(false);
+            });
         })
     };
 
@@ -532,64 +463,57 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
             let command_result = command_result.clone();
             let is_climate_on = is_climate_on.clone();
 
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        climate_loading.set(true);
-                        command_result.set(None);
+            climate_loading.set(true);
+            command_result.set(None);
 
-                        spawn_local(async move {
-                            // Determine command based on current climate state
-                            let command = match *is_climate_on {
-                                Some(true) => "climate_off",  // If on, turn it off
-                                Some(false) => "climate_on",  // If off, turn it on
-                                None => "climate_on",         // If unknown, default to on
-                            };
+            spawn_local(async move {
+                // Determine command based on current climate state
+                let command = match *is_climate_on {
+                    Some(true) => "climate_off",  // If on, turn it off
+                    Some(false) => "climate_on",  // If off, turn it on
+                    None => "climate_on",         // If unknown, default to on
+                };
 
-                            let body = serde_json::json!({
-                                "command": command
-                            });
+                let body = serde_json::json!({
+                    "command": command
+                });
 
-                            let request = match Request::post(&format!("{}/api/tesla/command", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .json(&body)
-                            {
-                                Ok(req) => req.send().await,
-                                Err(e) => {
-                                    command_result.set(Some(format!("Failed to create request: {}", e)));
-                                    climate_loading.set(false);
-                                    return;
-                                }
-                            };
+                let request = match Api::post("/api/tesla/command")
+                    .json(&body)
+                {
+                    Ok(req) => req.send().await,
+                    Err(e) => {
+                        command_result.set(Some(format!("Failed to create request: {}", e)));
+                        climate_loading.set(false);
+                        return;
+                    }
+                };
 
-                            match request {
-                                Ok(response) => {
-                                    if response.ok() {
-                                        // Update state optimistically after successful command
-                                        match command {
-                                            "climate_on" => is_climate_on.set(Some(true)),
-                                            "climate_off" => is_climate_on.set(Some(false)),
-                                            _ => {}
-                                        }
+                match request {
+                    Ok(response) => {
+                        if response.ok() {
+                            // Update state optimistically after successful command
+                            match command {
+                                "climate_on" => is_climate_on.set(Some(true)),
+                                "climate_off" => is_climate_on.set(Some(false)),
+                                _ => {}
+                            }
 
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
-                                                command_result.set(Some(msg.to_string()));
-                                            }
-                                        }
-                                    } else {
-                                        command_result.set(Some("Failed to execute climate command".to_string()));
-                                    }
-                                }
-                                Err(e) => {
-                                    command_result.set(Some(format!("Network error: {}", e)));
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
+                                    command_result.set(Some(msg.to_string()));
                                 }
                             }
-                            climate_loading.set(false);
-                        });
+                        } else {
+                            command_result.set(Some("Failed to execute climate command".to_string()));
+                        }
+                    }
+                    Err(e) => {
+                        command_result.set(Some(format!("Network error: {}", e)));
                     }
                 }
-            }
+                climate_loading.set(false);
+            });
         })
     };
 
@@ -608,41 +532,37 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
             let is_rear_defroster_on = is_rear_defroster_on.clone();
             let is_climate_on = is_climate_on.clone();
 
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        defrost_loading.set(true);
-                        command_result.set(None);
+            defrost_loading.set(true);
+            command_result.set(None);
 
-                        spawn_local(async move {
-                            // Determine command based on current defrost state
-                            let front_on = (*is_front_defroster_on).unwrap_or(false);
-                            let rear_on = (*is_rear_defroster_on).unwrap_or(false);
-                            let any_defrost_on = front_on || rear_on;
+            spawn_local(async move {
+                // Determine command based on current defrost state
+                let front_on = (*is_front_defroster_on).unwrap_or(false);
+                let rear_on = (*is_rear_defroster_on).unwrap_or(false);
+                let any_defrost_on = front_on || rear_on;
 
-                            // If defrost is on, turn off climate (which turns off defrost)
-                            // If defrost is off, activate defrost
-                            let command = if any_defrost_on {
-                                "climate_off"  // Turn off climate to deactivate defrost
-                            } else {
-                                "defrost"      // Activate max defrost
-                            };
+                // If defrost is on, turn off climate (which turns off defrost)
+                // If defrost is off, activate defrost
+                let command = if any_defrost_on {
+                    "climate_off"  // Turn off climate to deactivate defrost
+                } else {
+                    "defrost"      // Activate max defrost
+                };
 
-                            let body = serde_json::json!({
-                                "command": command
-                            });
+                let body = serde_json::json!({
+                    "command": command
+                });
 
-                            let request = match Request::post(&format!("{}/api/tesla/command", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .json(&body)
-                            {
-                                Ok(req) => req.send().await,
-                                Err(e) => {
-                                    command_result.set(Some(format!("Failed to create request: {}", e)));
-                                    defrost_loading.set(false);
-                                    return;
-                                }
-                            };
+                let request = match Api::post("/api/tesla/command")
+                    .json(&body)
+                {
+                    Ok(req) => req.send().await,
+                    Err(e) => {
+                        command_result.set(Some(format!("Failed to create request: {}", e)));
+                        defrost_loading.set(false);
+                        return;
+                    }
+                };
 
                             match request {
                                 Ok(response) => {
@@ -677,11 +597,8 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                                     command_result.set(Some(format!("Network error: {}", e)));
                                 }
                             }
-                            defrost_loading.set(false);
-                        });
-                    }
-                }
-            }
+                defrost_loading.set(false);
+            });
         })
     };
 
@@ -701,64 +618,57 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
             let available_vehicles = available_vehicles.clone();
             let vehicle_clone = vehicle.clone();
 
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        vehicle_loading.set(true);
+            vehicle_loading.set(true);
 
-                        spawn_local(async move {
-                            let body = serde_json::json!({
-                                "vin": vehicle_clone.vin,
-                                "name": vehicle_clone.name,
-                                "vehicle_id": vehicle_clone.vehicle_id,
-                            });
+            spawn_local(async move {
+                let body = serde_json::json!({
+                    "vin": vehicle_clone.vin,
+                    "name": vehicle_clone.name,
+                    "vehicle_id": vehicle_clone.vehicle_id,
+                });
 
-                            let request = match Request::post(&format!("{}/api/tesla/select-vehicle", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .json(&body)
-                            {
-                                Ok(req) => req.send().await,
-                                Err(e) => {
-                                    command_result.set(Some(format!("Failed to select vehicle: {}", e)));
-                                    vehicle_loading.set(false);
-                                    return;
-                                }
-                            };
+                let request = match Api::post("/api/tesla/select-vehicle")
+                    .json(&body)
+                {
+                    Ok(req) => req.send().await,
+                    Err(e) => {
+                        command_result.set(Some(format!("Failed to select vehicle: {}", e)));
+                        vehicle_loading.set(false);
+                        return;
+                    }
+                };
 
-                            match request {
-                                Ok(response) => {
-                                    if response.ok() {
-                                        // Update local state
-                                        selected_vehicle_name.set(Some(vehicle_clone.name.clone()));
+                match request {
+                    Ok(response) => {
+                        if response.ok() {
+                            // Update local state
+                            selected_vehicle_name.set(Some(vehicle_clone.name.clone()));
 
-                                        // Update selected flag in vehicles list
-                                        let mut vehicles = (*available_vehicles).clone();
-                                        for v in vehicles.iter_mut() {
-                                            v.selected = v.vin == vehicle_clone.vin;
-                                        }
-                                        available_vehicles.set(vehicles);
+                            // Update selected flag in vehicles list
+                            let mut vehicles = (*available_vehicles).clone();
+                            for v in vehicles.iter_mut() {
+                                v.selected = v.vin == vehicle_clone.vin;
+                            }
+                            available_vehicles.set(vehicles);
 
-                                        // Close selector
-                                        show_vehicle_selector.set(false);
+                            // Close selector
+                            show_vehicle_selector.set(false);
 
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
-                                                command_result.set(Some(msg.to_string()));
-                                            }
-                                        }
-                                    } else {
-                                        command_result.set(Some("Failed to select vehicle".to_string()));
-                                    }
-                                }
-                                Err(e) => {
-                                    command_result.set(Some(format!("Network error: {}", e)));
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
+                                    command_result.set(Some(msg.to_string()));
                                 }
                             }
-                            vehicle_loading.set(false);
-                        });
+                        } else {
+                            command_result.set(Some("Failed to select vehicle".to_string()));
+                        }
+                    }
+                    Err(e) => {
+                        command_result.set(Some(format!("Network error: {}", e)));
                     }
                 }
-            }
+                vehicle_loading.set(false);
+            });
         })
     };
 
@@ -776,15 +686,11 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
             let command_result = command_result.clone();
             let vin_clone = vin.clone();
 
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        spawn_local(async move {
-                            match Request::get(&format!("{}/api/auth/tesla/virtual-key?vin={}", config::get_backend_url(), urlencoding::encode(&vin_clone)))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await
-                            {
+            spawn_local(async move {
+                match Api::get(&format!("/api/auth/tesla/virtual-key?vin={}", urlencoding::encode(&vin_clone)))
+                    .send()
+                    .await
+                {
                                 Ok(response) => {
                                     if response.ok() {
                                         if let Ok(data) = response.json::<serde_json::Value>().await {
@@ -800,14 +706,11 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                                         command_result.set(Some("Failed to fetch pairing info".to_string()));
                                     }
                                 }
-                                Err(e) => {
-                                    command_result.set(Some(format!("Failed to fetch pairing info: {}", e)));
-                                }
-                            }
-                        });
+                    Err(e) => {
+                        command_result.set(Some(format!("Failed to fetch pairing info: {}", e)));
                     }
                 }
-            }
+            })
         })
     };
 
@@ -853,91 +756,82 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
             let available_vehicles = available_vehicles.clone();
             let selected_vehicle_name = selected_vehicle_name.clone();
 
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        battery_loading.set(true);
+            battery_loading.set(true);
 
-                        spawn_local(async move {
-                            let request = Request::get(&format!("{}/api/tesla/battery-status", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await;
+            spawn_local(async move {
+                let request = Api::get("/api/tesla/battery-status")
+                    .send()
+                    .await;
 
-                            match request {
-                                Ok(response) => {
-                                    if response.ok() {
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            if let Some(level) = data["battery_level"].as_i64() {
-                                                battery_level.set(Some(level as i32));
-                                            }
-                                            if let Some(range) = data["battery_range"].as_f64() {
-                                                battery_range.set(Some(range));
-                                            }
-                                            if let Some(state) = data["charging_state"].as_str() {
-                                                charging_state.set(Some(state.to_string()));
-                                            }
-                                            if let Some(locked) = data["locked"].as_bool() {
-                                                is_locked.set(Some(locked));
-                                            }
-                                            if let Some(temp) = data["inside_temp"].as_f64() {
-                                                inside_temp.set(Some(temp));
-                                            }
-                                            if let Some(temp) = data["outside_temp"].as_f64() {
-                                                outside_temp.set(Some(temp));
-                                            }
-                                            if let Some(climate) = data["is_climate_on"].as_bool() {
-                                                is_climate_on.set(Some(climate));
-                                            }
-                                            if let Some(front_defrost) = data["is_front_defroster_on"].as_bool() {
-                                                is_front_defroster_on.set(Some(front_defrost));
-                                            }
-                                            if let Some(rear_defrost) = data["is_rear_defroster_on"].as_bool() {
-                                                is_rear_defroster_on.set(Some(rear_defrost));
-                                            }
-                                        }
-
-                                        // Also fetch vehicles list to update selected vehicle
-                                        let token_clone = token.clone();
-                                        let available_vehicles = available_vehicles.clone();
-                                        let selected_vehicle_name = selected_vehicle_name.clone();
-                                        spawn_local(async move {
-                                            if let Ok(vehicles_response) = Request::get(&format!("{}/api/tesla/vehicles", config::get_backend_url()))
-                                                .header("Authorization", &format!("Bearer {}", token_clone))
-                                                .send()
-                                                .await
-                                            {
-                                                if vehicles_response.ok() {
-                                                    if let Ok(data) = vehicles_response.json::<serde_json::Value>().await {
-                                                        if let Some(vehicles_array) = data["vehicles"].as_array() {
-                                                            let vehicles: Vec<VehicleInfo> = vehicles_array
-                                                                .iter()
-                                                                .filter_map(|v| serde_json::from_value(v.clone()).ok())
-                                                                .collect();
-
-                                                            // Find selected vehicle name
-                                                            let selected_name = vehicles.iter()
-                                                                .find(|v| v.selected)
-                                                                .map(|v| v.name.clone());
-
-                                                            available_vehicles.set(vehicles);
-                                                            selected_vehicle_name.set(selected_name);
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        });
-                                    }
+                match request {
+                    Ok(response) => {
+                        if response.ok() {
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                if let Some(level) = data["battery_level"].as_i64() {
+                                    battery_level.set(Some(level as i32));
                                 }
-                                Err(_e) => {
-                                    // Error handling - could set an error state here
+                                if let Some(range) = data["battery_range"].as_f64() {
+                                    battery_range.set(Some(range));
+                                }
+                                if let Some(state) = data["charging_state"].as_str() {
+                                    charging_state.set(Some(state.to_string()));
+                                }
+                                if let Some(locked) = data["locked"].as_bool() {
+                                    is_locked.set(Some(locked));
+                                }
+                                if let Some(temp) = data["inside_temp"].as_f64() {
+                                    inside_temp.set(Some(temp));
+                                }
+                                if let Some(temp) = data["outside_temp"].as_f64() {
+                                    outside_temp.set(Some(temp));
+                                }
+                                if let Some(climate) = data["is_climate_on"].as_bool() {
+                                    is_climate_on.set(Some(climate));
+                                }
+                                if let Some(front_defrost) = data["is_front_defroster_on"].as_bool() {
+                                    is_front_defroster_on.set(Some(front_defrost));
+                                }
+                                if let Some(rear_defrost) = data["is_rear_defroster_on"].as_bool() {
+                                    is_rear_defroster_on.set(Some(rear_defrost));
                                 }
                             }
-                            battery_loading.set(false);
-                        });
+
+                            // Also fetch vehicles list to update selected vehicle
+                            let available_vehicles = available_vehicles.clone();
+                            let selected_vehicle_name = selected_vehicle_name.clone();
+                            spawn_local(async move {
+                                if let Ok(vehicles_response) = Api::get("/api/tesla/vehicles")
+                                    .send()
+                                    .await
+                                {
+                                    if vehicles_response.ok() {
+                                        if let Ok(data) = vehicles_response.json::<serde_json::Value>().await {
+                                            if let Some(vehicles_array) = data["vehicles"].as_array() {
+                                                let vehicles: Vec<VehicleInfo> = vehicles_array
+                                                    .iter()
+                                                    .filter_map(|v| serde_json::from_value(v.clone()).ok())
+                                                    .collect();
+
+                                                // Find selected vehicle name
+                                                let selected_name = vehicles.iter()
+                                                    .find(|v| v.selected)
+                                                    .map(|v| v.name.clone());
+
+                                                available_vehicles.set(vehicles);
+                                                selected_vehicle_name.set(selected_name);
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }
+                    Err(_e) => {
+                        // Error handling - could set an error state here
                     }
                 }
-            }
+                battery_loading.set(false);
+            });
         })
     };
 
@@ -1296,41 +1190,34 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                                                                                 let vehicle_pairing_vin = vehicle_pairing_vin.clone();
                                                                                 Callback::from(move |_| {
                                                                                     let vehicle_pairing_vin = vehicle_pairing_vin.clone();
-                                                                                    if let Some(window) = web_sys::window() {
-                                                                                        if let Ok(Some(storage)) = window.local_storage() {
-                                                                                            if let Ok(Some(token)) = storage.get_item("token") {
-                                                                                                spawn_local(async move {
-                                                                                                    // Send mark-paired request
-                                                                                                    match Request::post(&format!("{}/api/tesla/mark-paired", config::get_backend_url()))
-                                                                                                        .header("Authorization", &format!("Bearer {}", token))
-                                                                                                        .json(&serde_json::json!({"paired": true}))
-                                                                                                    {
-                                                                                                        Ok(req) => {
-                                                                                                            match req.send().await {
-                                                                                                                Ok(response) => {
-                                                                                                                    if response.ok() {
-                                                                                                                        // Success - close UI and refresh
-                                                                                                                        vehicle_pairing_vin.set(None);
-                                                                                                                        if let Some(window) = web_sys::window() {
-                                                                                                                            let _ = window.location().reload();
-                                                                                                                        }
-                                                                                                                    }
-                                                                                                                }
-                                                                                                                Err(_) => {
-                                                                                                                    // Request failed - close UI anyway
-                                                                                                                    vehicle_pairing_vin.set(None);
-                                                                                                                }
+                                                                                    spawn_local(async move {
+                                                                                        // Send mark-paired request
+                                                                                        match Api::post("/api/tesla/mark-paired")
+                                                                                            .json(&serde_json::json!({"paired": true}))
+                                                                                        {
+                                                                                            Ok(req) => {
+                                                                                                match req.send().await {
+                                                                                                    Ok(response) => {
+                                                                                                        if response.ok() {
+                                                                                                            // Success - close UI and refresh
+                                                                                                            vehicle_pairing_vin.set(None);
+                                                                                                            if let Some(window) = web_sys::window() {
+                                                                                                                let _ = window.location().reload();
                                                                                                             }
                                                                                                         }
-                                                                                                        Err(_) => {
-                                                                                                            // Failed to create request - close UI
-                                                                                                            vehicle_pairing_vin.set(None);
-                                                                                                        }
                                                                                                     }
-                                                                                                });
+                                                                                                    Err(_) => {
+                                                                                                        // Request failed - close UI anyway
+                                                                                                        vehicle_pairing_vin.set(None);
+                                                                                                    }
+                                                                                                }
+                                                                                            }
+                                                                                            Err(_) => {
+                                                                                                // Failed to create request - close UI
+                                                                                                vehicle_pairing_vin.set(None);
                                                                                             }
                                                                                         }
-                                                                                    }
+                                                                                    });
                                                                                 })
                                                                             }}
                                                                             style="

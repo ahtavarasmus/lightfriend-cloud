@@ -1,9 +1,8 @@
 use yew::prelude::*;
-use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::window;
-use gloo_net::http::Request;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+use crate::utils::api::Api;
 
 #[derive(Properties, PartialEq)]
 pub struct OAuthButtonProps {
@@ -29,7 +28,7 @@ pub fn google_calendar_connect(props: &OAuthButtonProps) -> Html {
             let connecting = connecting.clone();
             
             spawn_local(async move {
-                match Request::get("/api/oauth/auth-params")
+                match Api::get("/api/oauth/auth-params")
                     .send()
                     .await {
                     Ok(response) => {

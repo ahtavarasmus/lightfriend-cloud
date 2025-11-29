@@ -1,15 +1,10 @@
 use reqwest;
-use image::DynamicImage;
 
 use std::error::Error;
 use tracing;
 use quircs;
 
 use url::Url;
-use mime_guess::from_path;
-use regex::Regex;
-use openai_api_rs::v1::{chat_completion, types};
-use std::collections::HashMap;
 use crate::tool_call_utils::internet::MenuContent;
 
 

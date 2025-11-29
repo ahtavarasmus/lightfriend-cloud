@@ -45,7 +45,7 @@ sleep "$PROXY_SLEEP"
 
 # Verify Tesla proxy is healthy
 echo "Checking Tesla proxy health..."
-proxy_status=$(docker ps --filter name=tesla-http-proxy --format "{{.Status}}")
+proxy_status=$(sudo docker ps --filter name=tesla-http-proxy --format "{{.Status}}")
 if echo "$proxy_status" | grep -q "healthy"; then
     echo "Tesla proxy is healthy: $proxy_status"
 elif echo "$proxy_status" | grep -q "Up"; then

@@ -1,9 +1,8 @@
 use yew::prelude::*;
-use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::{window, Event};
 use wasm_bindgen::JsCast;
-use crate::config;
+use crate::utils::api::Api;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::js_sys;
 
@@ -42,35 +41,27 @@ pub fn whatsapp_connect(props: &WhatsappProps) -> Html {
         Callback::from(move |_| {
             let connection_status = connection_status.clone();
             let error = error.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                spawn_local(async move {
-                    match Request::get(&format!("{}/api/auth/whatsapp/status", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            match response.json::<WhatsappStatus>().await {
-                                Ok(status) => {
-                                    connection_status.set(Some(status));
-                                    error.set(None);
-                                }
-                                Err(_) => {
-                                    error.set(Some("Failed to parse WhatsApp status".to_string()));
-                                }
+            spawn_local(async move {
+                match Api::get("/api/auth/whatsapp/status")
+                    .send()
+                    .await
+                {
+                    Ok(response) => {
+                        match response.json::<WhatsappStatus>().await {
+                            Ok(status) => {
+                                connection_status.set(Some(status));
+                                error.set(None);
+                            }
+                            Err(_) => {
+                                error.set(Some("Failed to parse WhatsApp status".to_string()));
                             }
                         }
-                        Err(_) => {
-                            error.set(Some("Failed to fetch WhatsApp status".to_string()));
-                        }
                     }
-                });
-            }
+                    Err(_) => {
+                        error.set(Some("Failed to fetch WhatsApp status".to_string()));
+                    }
+                }
+            });
         })
     };
 
@@ -94,20 +85,13 @@ pub fn whatsapp_connect(props: &WhatsappProps) -> Html {
             let qr_code = qr_code.clone();
             let error = error.clone();
             let fetch_status = fetch_status.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                is_connecting.set(true);
-                spawn_local(async move {
-                    match Request::get(&format!("{}/api/auth/whatsapp/connect", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
+            is_connecting.set(true);
+            spawn_local(async move {
+                match Api::get("/api/auth/whatsapp/connect")
+                    .send()
+                    .await
+                {
+                    Ok(response) => {
                             // Debug: Log the response status
                             web_sys::console::log_1(&format!("Response status: {}", response.status()).into());
                            
@@ -185,8 +169,7 @@ pub fn whatsapp_connect(props: &WhatsappProps) -> Html {
                             error.set(Some("Failed to start WhatsApp connection".to_string()));
                         }
                     }
-                });
-            }
+            });
         })
     };
 
@@ -201,37 +184,27 @@ pub fn whatsapp_connect(props: &WhatsappProps) -> Html {
             let error = error.clone();
             let is_disconnecting = is_disconnecting.clone();
             let show_disconnect_modal = show_disconnect_modal.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                is_disconnecting.set(true); // Indicate disconnection is starting
-                spawn_local(async move {
-                    match Request::delete(&format!("{}/api/auth/whatsapp/disconnect", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
-                    {
-                        Ok(_) => {
-                            connection_status.set(Some(WhatsappStatus {
-                                connected: false,
-                                status: "not_connected".to_string(),
-                                created_at: (js_sys::Date::now() as i32),
-                            }));
-                            error.set(None);
-                        }
-                        Err(_) => {
-                            error.set(Some("Failed to disconnect WhatsApp".to_string()));
-                        }
+            is_disconnecting.set(true); // Indicate disconnection is starting
+            spawn_local(async move {
+                match Api::delete("/api/auth/whatsapp/disconnect")
+                    .send()
+                    .await
+                {
+                    Ok(_) => {
+                        connection_status.set(Some(WhatsappStatus {
+                            connected: false,
+                            status: "not_connected".to_string(),
+                            created_at: (js_sys::Date::now() as i32),
+                        }));
+                        error.set(None);
                     }
-                    is_disconnecting.set(false); // Disconnection complete
-                    show_disconnect_modal.set(false); // Close the modal
-                });
-            } else {
-                show_disconnect_modal.set(false); // Close modal if no token
-            }
+                    Err(_) => {
+                        error.set(Some("Failed to disconnect WhatsApp".to_string()));
+                    }
+                }
+                is_disconnecting.set(false); // Disconnection complete
+                show_disconnect_modal.set(false); // Close the modal
+            });
         })
     };
 
@@ -353,29 +326,21 @@ pub fn whatsapp_connect(props: &WhatsappProps) -> Html {
                                                 let fetch_status = fetch_status.clone();
                                                 Callback::from(move |_| {
                                                     let fetch_status = fetch_status.clone();
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
-                                                            match Request::post(&format!("{}/api/auth/whatsapp/resync", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .send()
-                                                                .await
-                                                            {
-                                                                Ok(_) => {
-                                                                    web_sys::console::log_1(&"WhatsApp resync initiated".into());
-                                                                    // Refresh status after resync
-                                                                    fetch_status.emit(());
-                                                                }
-                                                                Err(e) => {
-                                                                    web_sys::console::error_1(&format!("Failed to resync WhatsApp: {}", e).into());
-                                                                }
+                                                    spawn_local(async move {
+                                                        match Api::post("/api/auth/whatsapp/resync")
+                                                            .send()
+                                                            .await
+                                                        {
+                                                            Ok(_) => {
+                                                                web_sys::console::log_1(&"WhatsApp resync initiated".into());
+                                                                // Refresh status after resync
+                                                                fetch_status.emit(());
                                                             }
-                                                        });
-                                                    }
+                                                            Err(e) => {
+                                                                web_sys::console::error_1(&format!("Failed to resync WhatsApp: {}", e).into());
+                                                            }
+                                                        }
+                                                    });
                                                 })
                                             }} class="resync-button">
                                                 {"Resync WhatsApp"}
@@ -392,124 +357,100 @@ pub fn whatsapp_connect(props: &WhatsappProps) -> Html {
                                         <>
                                             <button onclick={{
                                                 Callback::from(move |_| {
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
-                                                            match Request::get(&format!("{}/api/whatsapp/test-messages", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .send()
-                                                                .await
-                                                            {
-                                                                Ok(response) => {
-                                                                    web_sys::console::log_1(&format!("Response status: {}", response.status()).into());
-                                                                    match response.text().await {
-                                                                        Ok(text) => {
-                                                                            web_sys::console::log_1(&format!("Raw response: {}", text).into());
-                                                                            match serde_json::from_str::<serde_json::Value>(&text) {
-                                                                                Ok(data) => {
-                                                                                    web_sys::console::log_1(&format!("Messages: {:?}", data).into());
-                                                                                }
-                                                                                Err(e) => {
-                                                                                    web_sys::console::error_1(&format!("Failed to parse JSON: {}", e).into());
-                                                                                }
+                                                    spawn_local(async move {
+                                                        match Api::get("/api/whatsapp/test-messages")
+                                                            .send()
+                                                            .await
+                                                        {
+                                                            Ok(response) => {
+                                                                web_sys::console::log_1(&format!("Response status: {}", response.status()).into());
+                                                                match response.text().await {
+                                                                    Ok(text) => {
+                                                                        web_sys::console::log_1(&format!("Raw response: {}", text).into());
+                                                                        match serde_json::from_str::<serde_json::Value>(&text) {
+                                                                            Ok(data) => {
+                                                                                web_sys::console::log_1(&format!("Messages: {:?}", data).into());
+                                                                            }
+                                                                            Err(e) => {
+                                                                                web_sys::console::error_1(&format!("Failed to parse JSON: {}", e).into());
                                                                             }
                                                                         }
-                                                                        Err(e) => {
-                                                                            web_sys::console::error_1(&format!("Failed to get response text: {}", e).into());
-                                                                        }
+                                                                    }
+                                                                    Err(e) => {
+                                                                        web_sys::console::error_1(&format!("Failed to get response text: {}", e).into());
                                                                     }
                                                                 }
-                                                                Err(e) => {
-                                                                    web_sys::console::error_1(&format!("Failed to fetch messages: {}", e).into());
-                                                                }
                                                             }
-                                                        });
-                                                    }
+                                                            Err(e) => {
+                                                                web_sys::console::error_1(&format!("Failed to fetch messages: {}", e).into());
+                                                            }
+                                                        }
+                                                    });
                                                 })
                                             }} class="test-button">
                                                 {"Test Fetch Messages"}
                                             </button>
                                             <button onclick={{
                                                 Callback::from(move |_| {
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
-                                                            let request_body = serde_json::json!({
-                                                                "chat_name": "Rasmus Ähtävä",
-                                                                "message": "rasmus testing matrix, sorry:)"
-                                                            });
-                                                            match Request::post(&format!("{}/api/whatsapp/send", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .header("Content-Type", "application/json")
-                                                                .body(serde_json::to_string(&request_body).unwrap())
-                                                                .send()
-                                                                .await
-                                                            {
-                                                                Ok(response) => {
-                                                                    web_sys::console::log_1(&format!("Send message response status: {}", response.status()).into());
-                                                                    match response.text().await {
-                                                                        Ok(text) => {
-                                                                            web_sys::console::log_1(&format!("Send message response: {}", text).into());
-                                                                        }
-                                                                        Err(e) => {
-                                                                            web_sys::console::error_1(&format!("Failed to get send message response text: {}", e).into());
-                                                                        }
+                                                    spawn_local(async move {
+                                                        let request_body = serde_json::json!({
+                                                            "chat_name": "Rasmus Ähtävä",
+                                                            "message": "rasmus testing matrix, sorry:)"
+                                                        });
+                                                        match Api::post("/api/whatsapp/send")
+                                                            .header("Content-Type", "application/json")
+                                                            .body(serde_json::to_string(&request_body).unwrap())
+                                                            .send()
+                                                            .await
+                                                        {
+                                                            Ok(response) => {
+                                                                web_sys::console::log_1(&format!("Send message response status: {}", response.status()).into());
+                                                                match response.text().await {
+                                                                    Ok(text) => {
+                                                                        web_sys::console::log_1(&format!("Send message response: {}", text).into());
+                                                                    }
+                                                                    Err(e) => {
+                                                                        web_sys::console::error_1(&format!("Failed to get send message response text: {}", e).into());
                                                                     }
                                                                 }
-                                                                Err(e) => {
-                                                                    web_sys::console::error_1(&format!("Failed to send test message: {}", e).into());
-                                                                }
                                                             }
-                                                        });
-                                                    }
+                                                            Err(e) => {
+                                                                web_sys::console::error_1(&format!("Failed to send test message: {}", e).into());
+                                                            }
+                                                        }
+                                                    });
                                                 })
                                             }} class="test-button test-send-button">
                                                 {"Test Send Message"}
                                             </button>
                                             <button onclick={{
                                                 Callback::from(move |_| {
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
-                                                            let request_body = serde_json::json!({
-                                                                "search_term": "leevi"
-                                                            });
-                                                            match Request::post(&format!("{}/api/whatsapp/search-rooms", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .header("Content-Type", "application/json")
-                                                                .body(serde_json::to_string(&request_body).unwrap())
-                                                                .send()
-                                                                .await
-                                                            {
-                                                                Ok(response) => {
-                                                                    web_sys::console::log_1(&format!("Search rooms response status: {}", response.status()).into());
-                                                                    match response.text().await {
-                                                                        Ok(text) => {
-                                                                            web_sys::console::log_1(&format!("Search rooms response: {}", text).into());
-                                                                        }
-                                                                        Err(e) => {
-                                                                            web_sys::console::error_1(&format!("Failed to get search rooms response text: {}", e).into());
-                                                                        }
+                                                    spawn_local(async move {
+                                                        let request_body = serde_json::json!({
+                                                            "search_term": "leevi"
+                                                        });
+                                                        match Api::post("/api/whatsapp/search-rooms")
+                                                            .header("Content-Type", "application/json")
+                                                            .body(serde_json::to_string(&request_body).unwrap())
+                                                            .send()
+                                                            .await
+                                                        {
+                                                            Ok(response) => {
+                                                                web_sys::console::log_1(&format!("Search rooms response status: {}", response.status()).into());
+                                                                match response.text().await {
+                                                                    Ok(text) => {
+                                                                        web_sys::console::log_1(&format!("Search rooms response: {}", text).into());
+                                                                    }
+                                                                    Err(e) => {
+                                                                        web_sys::console::error_1(&format!("Failed to get search rooms response text: {}", e).into());
                                                                     }
                                                                 }
-                                                                Err(e) => {
-                                                                    web_sys::console::error_1(&format!("Failed to search rooms: {}", e).into());
-                                                                }
                                                             }
-                                                        });
-                                                    }
+                                                            Err(e) => {
+                                                                web_sys::console::error_1(&format!("Failed to search rooms: {}", e).into());
+                                                            }
+                                                        }
+                                                    });
                                                 })
                                             }} class="test-button test-search-button">
                                                 {"Test Search Rooms"}
@@ -529,31 +470,23 @@ pub fn whatsapp_connect(props: &WhatsappProps) -> Html {
                                             let error = error.clone();
                                             Callback::from(move |_| {
                                                 let error = error.clone();
-                                                if let Some(token) = window()
-                                                    .and_then(|w| w.local_storage().ok())
-                                                    .flatten()
-                                                    .and_then(|storage| storage.get_item("token").ok())
-                                                    .flatten()
-                                                {
-                                                    spawn_local(async move {
-                                                        match Request::post(&format!("{}/api/auth/whatsapp/reset", config::get_backend_url()))
-                                                            .header("Authorization", &format!("Bearer {}", token))
-                                                            .send()
-                                                            .await
-                                                        {
-                                                            Ok(_) => {
-                                                                // Reload the page to restart the connection process
-                                                                if let Some(window) = web_sys::window() {
-                                                                    let location = window.location();
-                                                                    let _ = location.reload();
-                                                                }
-                                                            }
-                                                            Err(_) => {
-                                                                error.set(Some("Failed to reset WhatsApp connection".to_string()));
+                                                spawn_local(async move {
+                                                    match Api::post("/api/auth/whatsapp/reset")
+                                                        .send()
+                                                        .await
+                                                    {
+                                                        Ok(_) => {
+                                                            // Reload the page to restart the connection process
+                                                            if let Some(window) = web_sys::window() {
+                                                                let location = window.location();
+                                                                let _ = location.reload();
                                                             }
                                                         }
-                                                    });
-                                                }
+                                                        Err(_) => {
+                                                            error.set(Some("Failed to reset WhatsApp connection".to_string()));
+                                                        }
+                                                    }
+                                                });
                                             })
                                         }} class="reset-button">
                                             {"Having trouble? Reset Connection"}

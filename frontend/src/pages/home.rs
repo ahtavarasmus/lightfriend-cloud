@@ -3,9 +3,8 @@ use crate::auth::connect::Connect;
 use yew_router::prelude::*;
 use crate::Route;
 use yew_router::components::Link;
-use crate::config;
+use crate::utils::api::Api;
 use web_sys::{window, HtmlInputElement, UrlSearchParams};
-use gloo_net::http::Request;
 use serde_json::{json, Value};
 use wasm_bindgen_futures::spawn_local;
 use crate::pages::landing::Landing;
@@ -31,23 +30,14 @@ fn render_notification_settings(profile: Option<&UserProfile>) -> Html {
                                                 Callback::from(move |e: Event| {
                                                     let input: HtmlInputElement = e.target_unchecked_into();
                                                     let notify = input.checked();
-                                           
-                                                    if let Some(token) = window()
-                                                        .and_then(|w| w.local_storage().ok())
-                                                        .flatten()
-                                                        .and_then(|storage| storage.get_item("token").ok())
-                                                        .flatten()
-                                                    {
-                                                        spawn_local(async move {
-                                                            let _ = Request::post(&format!("{}/api/profile/update-notify/{}", config::get_backend_url(), user_id))
-                                                                .header("Authorization", &format!("Bearer {}", token))
-                                                                .header("Content-Type", "application/json")
-                                                                .json(&json!({"notify": notify}))
-                                                                .expect("Failed to serialize notify request")
-                                                                .send()
-                                                                .await;
-                                                        });
-                                                    }
+
+                                                    spawn_local(async move {
+                                                        let _ = Api::post(&format!("/api/profile/update-notify/{}", user_id))
+                                                            .json(&json!({"notify": notify}))
+                                                            .expect("Failed to serialize notify request")
+                                                            .send()
+                                                            .await;
+                                                    });
                                                 })
                                             }}
                                         />
@@ -74,14 +64,9 @@ enum DashboardTab {
 }
 
 pub fn is_logged_in() -> bool {
-    if let Some(window) = window() {
-        if let Ok(Some(storage)) = window.local_storage() {
-            if let Ok(Some(_token)) = storage.get_item("token") {
-                return true;
-            }
-        }
-    }
-    false
+    // Cookie-based auth - we can't check from client side
+    // This will be verified by the backend on API calls
+    true
 }
 
 #[derive(Properties, PartialEq, Clone)]
@@ -161,7 +146,7 @@ fn MonthlyCredits(props: &MonthlyCreditsProps) -> Html {
 
 #[function_component]
 pub fn Home() -> Html {
-    let logged_in = is_logged_in();
+    let auth_status = use_state(|| None::<bool>); // None = loading, Some(true) = authenticated, Some(false) = not authenticated
     let profile_data = use_state(|| None::<UserProfile>);
     let user_verified = use_state(|| true);
     let error = use_state(|| None::<String>);
@@ -178,78 +163,66 @@ pub fn Home() -> Html {
         let error = error.clone();
         let magic_link = magic_link.clone();
         let magic_error = magic_error.clone();
+        let auth_status = auth_status.clone();
         Callback::from(move |_| {
             let profile_data = profile_data.clone();
             let user_verified = user_verified.clone();
             let error = error.clone();
             let magic_link = magic_link.clone();
             let magic_error = magic_error.clone();
+            let auth_status = auth_status.clone();
             spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
-                {
-                    let result = Request::get(&format!("{}/api/profile", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await;
-                    match result {
-                        Ok(response) => {
-                            if response.status() == 401 {
-                                if let Some(window) = window() {
-                                    if let Ok(Some(storage)) = window.local_storage() {
-                                        let _ = storage.remove_item("token");
-                                    }
-                                    let _ = window.location().set_href("/");
-                                }
-                                return;
-                            }
-                            match response.json::<UserProfile>().await {
-                                Ok(profile) => {
-                                    user_verified.set(profile.verified);
-                                    profile_data.set(Some(profile.clone()));
-                                    error.set(None);
-                                    if profile.sub_tier.as_deref() == Some("tier 3") {
-                                        let token = token.clone();
-                                        spawn_local(async move {
-                                            let result = Request::get(&format!("{}/api/profile/magic-link", config::get_backend_url()))
-                                                .header("Authorization", &format!("Bearer {}", token))
-                                                .send()
-                                                .await;
-                                            match result {
-                                                Ok(resp) => {
-                                                    if resp.ok() {
-                                                        match resp.json::<Value>().await {
-                                                            Ok(data) => {
-                                                                if let Some(l) = data["link"].as_str() {
-                                                                    magic_link.set(Some(l.to_string()));
-                                                                }
-                                                            }
-                                                            Err(_) => {
-                                                                magic_error.set(Some("Failed to parse link".to_string()));
+                let result = Api::get("/api/profile").send().await;
+                match result {
+                    Ok(response) => {
+                        // After automatic retry, if we still get 401, user will be redirected to login
+                        // So we only need to check for success
+                        if !response.ok() {
+                            auth_status.set(Some(false));
+                            return;
+                        }
+                        match response.json::<UserProfile>().await {
+                            Ok(profile) => {
+                                auth_status.set(Some(true));
+                                user_verified.set(profile.verified);
+                                profile_data.set(Some(profile.clone()));
+                                error.set(None);
+                                if profile.sub_tier.as_deref() == Some("tier 3") {
+                                    spawn_local(async move {
+                                        let result = Api::get("/api/profile/magic-link")
+                                            .send()
+                                            .await;
+                                        match result {
+                                            Ok(resp) => {
+                                                if resp.ok() {
+                                                    match resp.json::<Value>().await {
+                                                        Ok(data) => {
+                                                            if let Some(l) = data["link"].as_str() {
+                                                                magic_link.set(Some(l.to_string()));
                                                             }
                                                         }
-                                                    } else {
-                                                        magic_error.set(Some("Failed to fetch link".to_string()));
+                                                        Err(_) => {
+                                                            magic_error.set(Some("Failed to parse link".to_string()));
+                                                        }
                                                     }
-                                                }
-                                                Err(_) => {
-                                                    magic_error.set(Some("Network error".to_string()));
+                                                } else {
+                                                    magic_error.set(Some("Failed to fetch link".to_string()));
                                                 }
                                             }
-                                        });
-                                    }
-                                }
-                                Err(_) => {
-                                    error.set(Some("Failed to parse profile data".to_string()));
+                                            Err(_) => {
+                                                magic_error.set(Some("Network error".to_string()));
+                                            }
+                                        }
+                                    });
                                 }
                             }
+                            Err(_) => {
+                                error.set(Some("Failed to parse profile data".to_string()));
+                            }
                         }
-                        Err(_) => {
-                            error.set(Some("Failed to fetch profile".to_string()));
-                        }
+                    }
+                    Err(_) => {
+                        error.set(Some("Failed to fetch profile".to_string()));
                     }
                 }
             });
@@ -288,80 +261,67 @@ pub fn Home() -> Html {
         let error = error.clone();
         let magic_link = magic_link.clone();
         let magic_error = magic_error.clone();
+        let auth_status = auth_status.clone();
         use_effect_with_deps(move |_| {
             let profile_data = profile_data.clone();
             let user_verified = user_verified.clone();
             let error = error.clone();
             let magic_link = magic_link.clone();
             let magic_error = magic_error.clone();
+            let auth_status = auth_status.clone();
             spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
-                {
-                    let result = Request::get(&format!("{}/api/profile", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await;
-                    match result {
-                        Ok(response) => {
-                            if response.status() == 401 {
-                                if let Some(window) = window() {
-                                    if let Ok(Some(storage)) = window.local_storage() {
-                                        let _ = storage.remove_item("token");
-                                    }
-                                    let _ = window.location().set_href("/");
-                                }
-                                return;
-                            }
-                   
-                            match response.json::<UserProfile>().await {
-                                Ok(profile) => {
-                                    user_verified.set(profile.verified);
-                                    profile_data.set(Some(profile.clone()));
-                                    error.set(None);
-                                    // Fetch magic link if tier 3
-                                    if profile.sub_tier.as_deref() == Some("tier 3") {
-                                        let token = token.clone();
-                                        spawn_local(async move {
-                                            let result = Request::get(&format!("{}/api/profile/magic-link", config::get_backend_url()))
-                                                .header("Authorization", &format!("Bearer {}", token))
-                                                .send()
-                                                .await;
-                                            match result {
-                                                Ok(resp) => {
-                                                    if resp.ok() {
-                                                        match resp.json::<Value>().await {
-                                                            Ok(data) => {
-                                                                if let Some(l) = data["link"].as_str() {
-                                                                    magic_link.set(Some(l.to_string()));
-                                                                }
-                                                            }
-                                                            Err(_) => {
-                                                                magic_error.set(Some("Failed to parse link".to_string()));
+                let result = Api::get("/api/profile").send().await;
+                match result {
+                    Ok(response) => {
+                        // After automatic retry, if we still get non-OK, show landing page
+                        if !response.ok() {
+                            auth_status.set(Some(false));
+                            return;
+                        }
+
+                        match response.json::<UserProfile>().await {
+                            Ok(profile) => {
+                                auth_status.set(Some(true));
+                                user_verified.set(profile.verified);
+                                profile_data.set(Some(profile.clone()));
+                                error.set(None);
+                                // Fetch magic link if tier 3
+                                if profile.sub_tier.as_deref() == Some("tier 3") {
+                                    spawn_local(async move {
+                                        let result = Api::get("/api/profile/magic-link")
+                                            .send()
+                                            .await;
+                                        match result {
+                                            Ok(resp) => {
+                                                if resp.ok() {
+                                                    match resp.json::<Value>().await {
+                                                        Ok(data) => {
+                                                            if let Some(l) = data["link"].as_str() {
+                                                                magic_link.set(Some(l.to_string()));
                                                             }
                                                         }
-                                                    } else {
-                                                        magic_error.set(Some("Failed to fetch link".to_string()));
+                                                        Err(_) => {
+                                                            magic_error.set(Some("Failed to parse link".to_string()));
+                                                        }
                                                     }
-                                                }
-                                                Err(_) => {
-                                                    magic_error.set(Some("Network error".to_string()));
+                                                } else {
+                                                    magic_error.set(Some("Failed to fetch link".to_string()));
                                                 }
                                             }
-                                        });
-                                    }
-                                }
-                                Err(_) => {
-                                    error.set(Some("Failed to parse profile data".to_string()));
+                                            Err(_) => {
+                                                magic_error.set(Some("Network error".to_string()));
+                                            }
+                                        }
+                                    });
                                 }
                             }
+                            Err(_) => {
+                                error.set(Some("Failed to parse profile data".to_string()));
+                            }
                         }
-                        Err(_) => {
-                            error.set(Some("Failed to fetch profile".to_string()));
-                        }
+                    }
+                    Err(_) => {
+                        error.set(Some("Failed to fetch profile".to_string()));
                     }
                 }
             });
@@ -369,14 +329,29 @@ pub fn Home() -> Html {
             || ()
         }, ());
     }
-    // If not logged in, show landing page
-    if !logged_in {
-        html! { <Landing /> }
-    } else if !*user_verified {
-        // If logged in but not verified, redirect to verify page
-        navigator.push(&Route::Verify);
-        html! {}
-    } else {
+    // Render based on authentication status
+    match *auth_status {
+        None => {
+            // Loading - checking authentication
+            html! {
+                <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center;">
+                    <div style="text-align: center;">
+                        <p>{"Loading..."}</p>
+                    </div>
+                </div>
+            }
+        }
+        Some(false) => {
+            // Not authenticated - show landing page
+            html! { <Landing /> }
+        }
+        Some(true) if !*user_verified => {
+            // Authenticated but not verified - redirect to verify page
+            navigator.push(&Route::Verify);
+            html! {}
+        }
+        Some(true) => {
+            // Authenticated and verified - show dashboard
         html! {
             <>
                 <div class="dashboard-container">
@@ -519,14 +494,11 @@ pub fn Home() -> Html {
                                                 on_regenerate={{
                                                     let magic_link = magic_link.clone();
                                                     let magic_error = magic_error.clone();
-                                                    let token = window().and_then(|w| w.local_storage().ok()).flatten().and_then(|s| s.get_item("token").ok()).flatten().unwrap_or_default();
                                                     Callback::from(move |_| {
                                                         let magic_link = magic_link.clone();
                                                         let magic_error = magic_error.clone();
-                                                        let token = token.clone();
                                                         spawn_local(async move {
-                                                            match Request::get(&format!("{}/api/profile/magic-link?regenerate=true", config::get_backend_url()))
-                                                                .header("Authorization", &format!("Bearer {}", token))
+                                                            match Api::get("/api/profile/magic-link?regenerate=true")
                                                                 .send()
                                                                 .await
                                                             {
@@ -1120,6 +1092,7 @@ pub fn Home() -> Html {
                     "#}
                 </style>
             </>
+        }
         }
     }
 }

@@ -11,6 +11,7 @@ use gloo_net::http::Request;
 use serde::Deserialize;
 use std::collections::HashMap;
 use wasm_bindgen::JsCast;
+use crate::utils::api::Api;
 #[derive(Deserialize, Clone)]
 struct UserProfile {
     id: i32,
@@ -87,39 +88,31 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
             }
 
             wasm_bindgen_futures::spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
-                {
-                    let endpoint = format!("{}/api/stripe/unified-subscription-checkout/{}", config::get_backend_url(), user_id);
-                    let request_body = json!({
-                        "subscription_type": match subscription_type.as_str() {
-                            "hosted" => "Hosted",
-                            "guaranteed" => "Guaranteed",
-                            _ => "Hosted" // Default to Hosted if unknown
-                        },
-                        "trial_days": if selected_country == "US" || selected_country == "CA" { 7 } else { 0 },
-                    });
-                    let response = Request::post(&endpoint)
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .header("Content-Type", "application/json")
-                        .body(request_body.to_string())
-                        .send()
-                        .await;
-                    match response {
-                        Ok(resp) => {
-                            if let Ok(json) = resp.json::<Value>().await {
-                                if let Some(url) = json.get("url").and_then(|u| u.as_str()) {
-                                    if let Some(window) = window() {
-                                        let _ = window.location().set_href(url);
-                                    }
+                let endpoint = format!("/api/stripe/unified-subscription-checkout/{}", user_id);
+                let request_body = json!({
+                    "subscription_type": match subscription_type.as_str() {
+                        "hosted" => "Hosted",
+                        "guaranteed" => "Guaranteed",
+                        _ => "Hosted" // Default to Hosted if unknown
+                    },
+                    "trial_days": if selected_country == "US" || selected_country == "CA" { 7 } else { 0 },
+                });
+                let response = Api::post(&endpoint)
+                    .header("Content-Type", "application/json")
+                    .body(request_body.to_string())
+                    .send()
+                    .await;
+                match response {
+                    Ok(resp) => {
+                        if let Ok(json) = resp.json::<Value>().await {
+                            if let Some(url) = json.get("url").and_then(|u| u.as_str()) {
+                                if let Some(window) = window() {
+                                    let _ = window.location().set_href(url);
                                 }
                             }
                         }
-                        Err(_) => {}
                     }
+                    Err(_) => {}
                 }
             });
         })

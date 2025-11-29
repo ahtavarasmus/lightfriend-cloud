@@ -4,6 +4,7 @@ use gloo_net::http::Request;
 use wasm_bindgen_futures::spawn_local;
 use serde_json::json;
 use crate::config;
+use crate::utils::api::Api;
 
 #[derive(Properties, PartialEq)]
 pub struct TwilioSelfHostInstructionsProps {
@@ -141,22 +142,15 @@ pub fn twilio_self_host_instructions(props: &TwilioSelfHostInstructionsProps) ->
             phone_save_status.set(None);
             
             spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
-                {
-                    let result = Request::post(&format!("{}/api/profile/twilio-phone", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .json(&json!({
-                            "twilio_phone": *phone_number
-                        }))
-                        .unwrap()
-                        .send()
-                        .await;
+                let result = Api::post("/api/profile/twilio-phone")
+                    .header("Content-Type", "application/json")
+                    .body(serde_json::to_string(&json!({
+                        "twilio_phone": *phone_number
+                    })).unwrap())
+                    .send()
+                    .await;
 
-                    match result {
+                match result {
                         Ok(response) => {
                             if response.status() == 401 {
                                 // Token is invalid or expired
@@ -172,12 +166,9 @@ pub fn twilio_self_host_instructions(props: &TwilioSelfHostInstructionsProps) ->
                                 phone_save_status.set(Some(Err("Failed to save Twilio phone".to_string())));
                             }
                         }
-                        Err(_) => {
-                            phone_save_status.set(Some(Err("Network error occurred".to_string())));
-                        }
+                    Err(_) => {
+                        phone_save_status.set(Some(Err("Network error occurred".to_string())));
                     }
-                } else {
-                    phone_save_status.set(Some(Err("Please log in to save Twilio phone".to_string())));
                 }
             });
         })
@@ -205,25 +196,18 @@ pub fn twilio_self_host_instructions(props: &TwilioSelfHostInstructionsProps) ->
             }
             
             creds_save_status.set(None);
-            
-            spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
-                {
-                    let result = Request::post(&format!("{}/api/profile/twilio-creds", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .json(&json!({
-                            "account_sid": *account_sid,
-                            "auth_token": *auth_token
-                        }))
-                        .unwrap()
-                        .send()
-                        .await;
 
-                    match result {
+            spawn_local(async move {
+                let result = Api::post("/api/profile/twilio-creds")
+                    .header("Content-Type", "application/json")
+                    .body(serde_json::to_string(&json!({
+                        "account_sid": *account_sid,
+                        "auth_token": *auth_token
+                    })).unwrap())
+                    .send()
+                    .await;
+
+                match result {
                         Ok(response) => {
                             if response.status() == 401 {
                                 // Token is invalid or expired
@@ -239,12 +223,9 @@ pub fn twilio_self_host_instructions(props: &TwilioSelfHostInstructionsProps) ->
                                 creds_save_status.set(Some(Err("Failed to save Twilio credentials".to_string())));
                             }
                         }
-                        Err(_) => {
-                            creds_save_status.set(Some(Err("Network error occurred".to_string())));
-                        }
+                    Err(_) => {
+                        creds_save_status.set(Some(Err("Network error occurred".to_string())));
                     }
-                } else {
-                    creds_save_status.set(Some(Err("Please log in to save Twilio credentials".to_string())));
                 }
             });
         })
@@ -272,25 +253,18 @@ pub fn twilio_self_host_instructions(props: &TwilioSelfHostInstructionsProps) ->
             }
             
             textbee_save_status.set(None);
-            
-            spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
-                {
-                    let result = Request::post(&format!("{}/api/profile/textbee-creds", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .json(&json!({
-                            "textbee_api_key": *textbee_api_key,
-                            "textbee_device_id": *textbee_device_id
-                        }))
-                        .unwrap()
-                        .send()
-                        .await;
 
-                    match result {
+            spawn_local(async move {
+                let result = Api::post("/api/profile/textbee-creds")
+                    .header("Content-Type", "application/json")
+                    .body(serde_json::to_string(&json!({
+                        "textbee_api_key": *textbee_api_key,
+                        "textbee_device_id": *textbee_device_id
+                    })).unwrap())
+                    .send()
+                    .await;
+
+                match result {
                         Ok(response) => {
                             if response.status() == 401 {
                                 // Token is invalid or expired
@@ -306,12 +280,9 @@ pub fn twilio_self_host_instructions(props: &TwilioSelfHostInstructionsProps) ->
                                 textbee_save_status.set(Some(Err("Failed to save TextBee credentials".to_string())));
                             }
                         }
-                        Err(_) => {
-                            textbee_save_status.set(Some(Err("Network error occurred".to_string())));
-                        }
+                    Err(_) => {
+                        textbee_save_status.set(Some(Err("Network error occurred".to_string())));
                     }
-                } else {
-                    textbee_save_status.set(Some(Err("Please log in to save TextBee credentials".to_string())));
                 }
             });
         })

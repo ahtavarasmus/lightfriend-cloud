@@ -1,7 +1,3 @@
-use reqwest::Client;
-use crate::handlers::imap_handlers::ImapError;
-use std::env;
-use std::error::Error;
 use std::sync::Arc;
 use crate::AppState;
 use serde::{Deserialize, Serialize};
@@ -9,14 +5,12 @@ use std::collections::HashMap;
 use std::cell::RefCell;
 use axum::{
     extract::Form,
-    response::IntoResponse,
     extract::State,
     http::StatusCode,
     Json,
 };
 use crate::tool_call_utils::utils::{
-    ChatMessage, create_openai_client, create_eval_tools, create_clarify_tools,
-    ClarifyResponse, EvalResponse,
+    ChatMessage, create_openai_client,
 };
 use chrono::Utc;
 
@@ -25,12 +19,7 @@ thread_local! {
     static MEDIA_SID_MAP: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
 }
 
-use openai_api_rs::v1::{
-    chat_completion,
-    types,
-    api::OpenAIClient,
-    common::GPT4_O,
-};
+use openai_api_rs::v1::chat_completion;
 
 
 #[derive(Debug, Deserialize, Clone)]
@@ -1036,7 +1025,7 @@ Never use markdown, HTML, or any special formatting characters in responses. Ret
                             */
 
                             // Format the response with all email details and just filenames for attachments
-                            let mut response = format!(
+                            let response = format!(
                                 "From: {}\nSubject: {}\nDate: {}\n\n{}",
                                 email["from"],
                                 email["subject"],
@@ -1498,7 +1487,7 @@ Never use markdown, HTML, or any special formatting characters in responses. Ret
         fail
     ).await;
 
-    let mut final_response_with_notice = final_response.clone();
+    let final_response_with_notice = final_response.clone();
 
     let mut final_eval: String = "".to_string();
     if let Some(eval) = eval_reason {

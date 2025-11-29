@@ -458,7 +458,7 @@ pub struct UserSettings {
     pub elevenlabs_phone_number_id: Option<String>, // used to make outbound calls(we get this from elevenlabs api call when adding the phone number)
     pub proactive_agent_on: bool, // whether the user wants to receive any kinds of notifications
     pub notify_about_calls: bool, // if call comes in to any chat networks should we notify the user about it?
-    pub action_on_critical_message: Option<String>, // "ask_sender", "ask_sender_exclude_family", "notify_family", or None and "notify_all" are the same
+    pub action_on_critical_message: Option<String>, // "notify_family" or None (notify all). Only applies to messaging platforms (WhatsApp, Telegram, Signal), not email.
     pub magic_login_token: Option<String>, // self hosted instance magic link token
     pub magic_login_token_expiration_timestamp: Option<i32>, // self hosted instance magic token expiration timestamp
     pub monthly_message_count: i32, // for US/CA tier 3 monitoring (threshold at 1000 messages/month)

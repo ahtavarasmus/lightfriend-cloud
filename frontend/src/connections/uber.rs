@@ -3,8 +3,7 @@ use web_sys::{MouseEvent, Event, HtmlSelectElement, EventTarget};
 use wasm_bindgen::JsCast;
 use serde_json::json;
 use wasm_bindgen_futures::spawn_local;
-use gloo_net::http::Request;
-use crate::config;
+use crate::utils::api::Api;
 #[derive(Properties, PartialEq)]
 pub struct UberConnectProps {
     pub user_id: i32,
@@ -25,32 +24,23 @@ pub fn uber_connect(props: &UberConnectProps) -> Html {
         let uber_connected = uber_connected.clone();
         use_effect_with_deps(
             move |_| {
-                if let Some(window) = web_sys::window() {
-                    if let Ok(Some(storage)) = window.local_storage() {
-                        if let Ok(Some(token)) = storage.get_item("token") {
-                            // Uber status
-                            let uber_connected = uber_connected.clone();
-                            let token = token.clone();
-                            spawn_local(async move {
-                                let request = Request::get(&format!("{}/api/auth/uber/status", config::get_backend_url()))
-                                    .header("Authorization", &format!("Bearer {}", token))
-                                    .send()
-                                    .await;
-                                if let Ok(response) = request {
-                                    if response.ok() {
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
-                                                uber_connected.set(connected);
-                                            }
-                                        }
-                                    } else {
-                                        web_sys::console::log_1(&"Failed to check uber status".into());
-                                    }
+                // Auth handled by cookies
+                spawn_local(async move {
+                    let request = Api::get("/api/auth/uber/status")
+                        .send()
+                        .await;
+                    if let Ok(response) = request {
+                        if response.ok() {
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
+                                    uber_connected.set(connected);
                                 }
-                            });
+                            }
+                        } else {
+                            web_sys::console::log_1(&"Failed to check uber status".into());
                         }
                     }
-                }
+                });
             },
             () // Empty tuple as dependencies since we want this to run only once on mount
         )
@@ -65,39 +55,33 @@ pub fn uber_connect(props: &UberConnectProps) -> Html {
             let uber_connected = uber_connected.clone();
             connecting_uber.set(true);
             error.set(None);
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        spawn_local(async move {
-                            let request = Request::get(&format!("{}/api/auth/uber/login", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await;
-                            match request {
-                                Ok(response) => {
-                                    if response.status() == 200 {
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            if let Some(auth_url) = data.get("auth_url").and_then(|u| u.as_str()) {
-                                                if let Some(window) = web_sys::window() {
-                                                    let _ = window.location().set_href(auth_url);
-                                                }
-                                            } else {
-                                                error.set(Some("Invalid response format".to_string()));
-                                            }
-                                        }
-                                    } else {
-                                        error.set(Some("Failed to initiate Uber connection".to_string()));
+            // Auth handled by cookies
+            spawn_local(async move {
+                let request = Api::get("/api/auth/uber/login")
+                    .send()
+                    .await;
+                match request {
+                    Ok(response) => {
+                        if response.status() == 200 {
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                if let Some(auth_url) = data.get("auth_url").and_then(|u| u.as_str()) {
+                                    if let Some(window) = web_sys::window() {
+                                        let _ = window.location().set_href(auth_url);
                                     }
-                                }
-                                Err(e) => {
-                                    error.set(Some(format!("Network error: {}", e)));
+                                } else {
+                                    error.set(Some("Invalid response format".to_string()));
                                 }
                             }
-                            connecting_uber.set(false);
-                        });
+                        } else {
+                            error.set(Some("Failed to initiate Uber connection".to_string()));
+                        }
+                    }
+                    Err(e) => {
+                        error.set(Some(format!("Network error: {}", e)));
                     }
                 }
-            }
+                connecting_uber.set(false);
+            });
         })
     };
     let onclick_delete_uber = {
@@ -106,63 +90,51 @@ pub fn uber_connect(props: &UberConnectProps) -> Html {
         Callback::from(move |_: MouseEvent| {
             let uber_connected = uber_connected.clone();
             let error = error.clone();
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        spawn_local(async move {
-                            let request = Request::delete(&format!("{}/api/auth/uber/connection", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await;
-                            match request {
-                                Ok(response) => {
-                                    if response.status() == 200 {
-                                        uber_connected.set(false);
-                                        error.set(None);
-                                    } else {
-                                        error.set(Some("Failed to disconnect Uber".to_string()));
-                                    }
-                                }
-                                Err(e) => {
-                                    error.set(Some(format!("Network error: {}", e)));
-                                }
-                            }
-                        });
+            // Auth handled by cookies
+            spawn_local(async move {
+                let request = Api::delete("/api/auth/uber/connection")
+                    .send()
+                    .await;
+                match request {
+                    Ok(response) => {
+                        if response.status() == 200 {
+                            uber_connected.set(false);
+                            error.set(None);
+                        } else {
+                            error.set(Some("Failed to disconnect Uber".to_string()));
+                        }
+                    }
+                    Err(e) => {
+                        error.set(Some(format!("Network error: {}", e)));
                     }
                 }
-            }
+            });
         })
     };
     let onclick_test_uber = {
         let error = error.clone();
         Callback::from(move |_: MouseEvent| {
             let error = error.clone();
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        spawn_local(async move {
-                            let request = Request::get(&format!("{}/api/uber", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await;
-                            match request {
-                                Ok(response) => {
-                                    if response.status() == 200 {
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            web_sys::console::log_1(&format!("Uber data: {:?}", data).into());
-                                        }
-                                    } else {
-                                        error.set(Some("Failed to fetch uber data".to_string()));
-                                    }
-                                }
-                                Err(e) => {
-                                    error.set(Some(format!("Network error: {}", e)));
-                                }
+            // Auth handled by cookies
+            spawn_local(async move {
+                let request = Api::get("/api/uber")
+                    .send()
+                    .await;
+                match request {
+                    Ok(response) => {
+                        if response.status() == 200 {
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                web_sys::console::log_1(&format!("Uber data: {:?}", data).into());
                             }
-                        });
+                        } else {
+                            error.set(Some("Failed to fetch uber data".to_string()));
+                        }
+                    }
+                    Err(e) => {
+                        error.set(Some(format!("Network error: {}", e)));
                     }
                 }
-            }
+            });
         })
     };
     let onchange_status = {
@@ -183,38 +155,32 @@ pub fn uber_connect(props: &UberConnectProps) -> Html {
             let selected_status = selected_status.clone();
             let error = error.clone();
             if !status.is_empty() {
-                if let Some(window) = web_sys::window() {
-                    if let Ok(Some(storage)) = window.local_storage() {
-                        if let Ok(Some(token)) = storage.get_item("token") {
-                            spawn_local(async move {
-                                let request = Request::post(&format!("{}/api/uber/ride/status", config::get_backend_url()))
-                                    .header("Authorization", &format!("Bearer {}", token))
-                                    .header("Content-Type", "application/json")
-                                    .json(&json!({
-                                        "status": status,
-                                    }))
-                                    .unwrap()
-                                    .send()
-                                    .await;
-                                match request {
-                                    Ok(response) => {
-                                        if response.status() == 200 {
-                                            if let Ok(data) = response.json::<serde_json::Value>().await {
-                                                web_sys::console::log_1(&format!("Updated status: {:?}", data).into());
-                                                selected_status.set(String::new());
-                                            }
-                                        } else {
-                                            error.set(Some("Failed to update status".to_string()));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error.set(Some(format!("Network error: {}", e)));
-                                    }
+                // Auth handled by cookies
+                spawn_local(async move {
+                    let request = Api::post("/api/uber/ride/status")
+                        .header("Content-Type", "application/json")
+                        .json(&json!({
+                            "status": status,
+                        }))
+                        .unwrap()
+                        .send()
+                        .await;
+                    match request {
+                        Ok(response) => {
+                            if response.status() == 200 {
+                                if let Ok(data) = response.json::<serde_json::Value>().await {
+                                    web_sys::console::log_1(&format!("Updated status: {:?}", data).into());
+                                    selected_status.set(String::new());
                                 }
-                            });
+                            } else {
+                                error.set(Some("Failed to update status".to_string()));
+                            }
+                        }
+                        Err(e) => {
+                            error.set(Some(format!("Network error: {}", e)));
                         }
                     }
-                }
+                });
             }
         })
     };

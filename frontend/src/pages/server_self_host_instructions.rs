@@ -9,6 +9,7 @@ use serde_json::json;
 use gloo_timers::future::TimeoutFuture;
 use web_sys::js_sys::eval;
 use crate::config;
+use crate::utils::api::Api;
 
 #[derive(Properties, PartialEq)]
 pub struct ServerSelfHostInstructionsProps {
@@ -78,45 +79,35 @@ pub fn server_self_host_instructions(props: &ServerSelfHostInstructionsProps) ->
             save_status.set(None);
          
             spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
-                {
-                    let result = Request::post(&format!("{}/api/profile/server-ip", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .json(&json!({
-                            "server_ip": *server_ip
-                        }))
-                        .unwrap()
-                        .send()
-                        .await;
-                    match result {
-                        Ok(response) => {
-                            if response.status() == 401 {
-                                if let Some(window) = window() {
-                                    if let Ok(Some(storage)) = window.local_storage() {
-                                        let _ = storage.remove_item("token");
-                                    }
+                let result = Api::post("/api/profile/server-ip")
+                    .header("Content-Type", "application/json")
+                    .body(serde_json::to_string(&json!({
+                        "server_ip": *server_ip
+                    })).unwrap())
+                    .send()
+                    .await;
+                match result {
+                    Ok(response) => {
+                        if response.status() == 401 {
+                            if let Some(window) = window() {
+                                if let Ok(Some(storage)) = window.local_storage() {
+                                    let _ = storage.remove_item("token");
                                 }
-                                save_status.set(Some(Err("Session expired. Please log in again.".to_string())));
-                            } else if response.ok() {
-                                save_status.set(Some(Ok(())));
-                                if let Some(cb) = &on_update {
-                                    cb.emit(());
-                                }
-                                show_wizard.set(false);
-                            } else {
-                                save_status.set(Some(Err("Failed to save server IP".to_string())));
                             }
-                        }
-                        Err(_) => {
-                            save_status.set(Some(Err("Network error occurred".to_string())));
+                            save_status.set(Some(Err("Session expired. Please log in again.".to_string())));
+                        } else if response.ok() {
+                            save_status.set(Some(Ok(())));
+                            if let Some(cb) = &on_update {
+                                cb.emit(());
+                            }
+                            show_wizard.set(false);
+                        } else {
+                            save_status.set(Some(Err("Failed to save server IP".to_string())));
                         }
                     }
-                } else {
-                    save_status.set(Some(Err("Please log in to save server IP".to_string())));
+                    Err(_) => {
+                        save_status.set(Some(Err("Network error occurred".to_string())));
+                    }
                 }
             });
         })

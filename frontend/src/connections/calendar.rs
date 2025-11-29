@@ -1,8 +1,8 @@
 use yew::prelude::*;
-use gloo_net::http::Request;
 use serde_json::json;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{MouseEvent, Event, HtmlInputElement};
+use crate::utils::api::Api;
 use crate::config;
 #[derive(Properties, PartialEq)]
 pub struct CalendarProps {
@@ -24,35 +24,28 @@ pub fn calendar_connect(props: &CalendarProps) -> Html {
         let on_connection_change = props.on_connection_change.clone();
         use_effect_with_deps(
             move |_| {
-                if let Some(window) = web_sys::window() {
-                    if let Ok(Some(storage)) = window.local_storage() {
-                        if let Ok(Some(token)) = storage.get_item("token") {
-                            // Check Google Calendar status
-                            let calendar_connected = calendar_connected.clone();
-                            let on_connection_change = on_connection_change.clone();
-                            spawn_local(async move {
-                                let request = Request::get(&format!("{}/api/auth/google/calendar/status", config::get_backend_url()))
-                                    .header("Authorization", &format!("Bearer {}", token))
-                                    .send()
-                                    .await;
-                                if let Ok(response) = request {
-                                    if response.ok() {
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
-                                                calendar_connected.set(connected);
-                                                if let Some(callback) = on_connection_change {
-                                                    callback.emit(connected);
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        web_sys::console::log_1(&"Failed to check calendar status".into());
+                // Check Google Calendar status - auth handled by cookies
+                let calendar_connected = calendar_connected.clone();
+                let on_connection_change = on_connection_change.clone();
+                spawn_local(async move {
+                    let request = Api::get("/api/auth/google/calendar/status")
+                        .send()
+                        .await;
+                    if let Ok(response) = request {
+                        if response.ok() {
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
+                                    calendar_connected.set(connected);
+                                    if let Some(callback) = on_connection_change {
+                                        callback.emit(connected);
                                     }
                                 }
-                            });
+                            }
+                        } else {
+                            web_sys::console::log_1(&"Failed to check calendar status".into());
                         }
                     }
-                }
+                });
                 || ()
             },
             (),
@@ -68,17 +61,15 @@ pub fn calendar_connect(props: &CalendarProps) -> Html {
             let calendar_access_type = if *all_calendars { "all" } else { "primary" };
             connecting.set(true);
             error.set(None);
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        web_sys::console::log_1(&format!("Initiating OAuth flow with token: {}", token).into());
-                        spawn_local(async move {
-                            let request = Request::get(&format!("{}/api/auth/google/calendar/login?calendar_access_type={}",
-                                config::get_backend_url(),
-                                calendar_access_type))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .header("Content-Type", "application/json");
-                            match request.send().await {
+
+            // Auth handled by cookies - no token check needed
+            web_sys::console::log_1(&"Initiating Google Calendar OAuth flow".into());
+            spawn_local(async move {
+                let request = Api::get(&format!("/api/auth/google/calendar/login?calendar_access_type={}", calendar_access_type))
+                    .header("Content-Type", "application/json")
+                    .send()
+                    .await;
+                match request {
                                 Ok(response) => {
                                     if (200..300).contains(&response.status()) {
                                         match response.json::<serde_json::Value>().await {
@@ -123,13 +114,6 @@ pub fn calendar_connect(props: &CalendarProps) -> Html {
                             }
                             connecting.set(false);
                         });
-                    } else {
-                        web_sys::console::log_1(&"No token found in localStorage".into());
-                        error.set(Some("Not authenticated".to_string()));
-                        connecting.set(false);
-                    }
-                }
-            }
         })
     };
     let onclick_delete_calendar = {
@@ -140,15 +124,13 @@ pub fn calendar_connect(props: &CalendarProps) -> Html {
             let calendar_connected = calendar_connected.clone();
             let error = error.clone();
             let on_connection_change = on_connection_change.clone();
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        spawn_local(async move {
-                            let request = Request::delete(&format!("{}/api/auth/google/calendar/connection", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await;
-                            match request {
+
+            // Auth handled by cookies - no token check needed
+            spawn_local(async move {
+                let request = Api::delete("/api/auth/google/calendar/connection")
+                    .send()
+                    .await;
+                match request {
                                 Ok(response) => {
                                     if response.ok() {
                                         calendar_connected.set(false);
@@ -170,9 +152,6 @@ pub fn calendar_connect(props: &CalendarProps) -> Html {
                                 }
                             }
                         });
-                    }
-                }
-            }
         })
     };
     html! {
@@ -247,42 +226,35 @@ pub fn calendar_connect(props: &CalendarProps) -> Html {
                                 let error = error.clone();
                                 Callback::from(move |_: MouseEvent| {
                                     let error = error.clone();
-                                    if let Some(window) = web_sys::window() {
-                                        if let Ok(Some(storage)) = window.local_storage() {
-                                            if let Ok(Some(token)) = storage.get_item("token") {
-                                                // Get current time for the test event
-                                                let now = web_sys::js_sys::Date::new_0();
-                                                let start_time = now.to_iso_string().as_string().unwrap();
-                                               
-                                                let test_event = json!({
-                                                    "start_time": start_time,
-                                                    "duration_minutes": 30,
-                                                    "summary": "Test Event",
-                                                    "description": "This is a test event created by the test button",
-                                                    "add_notification": true
-                                                });
-                                                spawn_local(async move {
-                                                    match Request::post(&format!("{}/api/calendar/create", config::get_backend_url()))
-                                                        .header("Authorization", &format!("Bearer {}", token))
-                                                        .json(&test_event)
-                                                        .unwrap()
-                                                        .send()
-                                                        .await {
-                                                        Ok(response) => {
-                                                            if response.status() == 200 {
-                                                                web_sys::console::log_1(&"Test event created successfully".into());
-                                                            } else {
-                                                                error.set(Some("Failed to create test event".to_string()));
-                                                            }
-                                                        }
-                                                        Err(e) => {
-                                                            error.set(Some(format!("Network error: {}", e)));
-                                                        }
-                                                    }
-                                                });
+                                    // Get current time for the test event
+                                    let now = web_sys::js_sys::Date::new_0();
+                                    let start_time = now.to_iso_string().as_string().unwrap();
+
+                                    let test_event = json!({
+                                        "start_time": start_time,
+                                        "duration_minutes": 30,
+                                        "summary": "Test Event",
+                                        "description": "This is a test event created by the test button",
+                                        "add_notification": true
+                                    });
+                                    spawn_local(async move {
+                                        match Api::post("/api/calendar/create")
+                                            .json(&test_event)
+                                            .unwrap()
+                                            .send()
+                                            .await {
+                                            Ok(response) => {
+                                                if response.status() == 200 {
+                                                    web_sys::console::log_1(&"Test event created successfully".into());
+                                                } else {
+                                                    error.set(Some("Failed to create test event".to_string()));
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error.set(Some(format!("Network error: {}", e)));
                                             }
                                         }
-                                    }
+                                    });
                                 })
                             };
                             html! {
@@ -303,55 +275,47 @@ pub fn calendar_connect(props: &CalendarProps) -> Html {
                                 let error = error.clone();
                                 Callback::from(move |_: MouseEvent| {
                                     let error = error.clone();
-                                    if let Some(window) = web_sys::window() {
-                                        if let Ok(Some(storage)) = window.local_storage() {
-                                            if let Ok(Some(token)) = storage.get_item("token") {
-                                                // Get today's start and end times in RFC3339 format
-                                                let now = web_sys::js_sys::Date::new_0();
-                                                let today_start = web_sys::js_sys::Date::new_0();
-                                                let today_end = web_sys::js_sys::Date::new_0();
-                                                today_start.set_hours(0);
-                                                today_start.set_minutes(0);
-                                                today_start.set_seconds(0);
-                                                today_start.set_milliseconds(0);
-                                               
-                                                today_end.set_hours(23);
-                                                today_end.set_minutes(59);
-                                                today_end.set_seconds(59);
-                                                today_end.set_milliseconds(999);
-                                               
-                                                let start_time = today_start.to_iso_string().as_string().unwrap();
-                                                let end_time = today_end.to_iso_string().as_string().unwrap();
-                                               
-                                                spawn_local(async move {
-                                                    let url = format!(
-                                                        "{}/api/calendar/events?start={}&end={}",
-                                                        config::get_backend_url(),
-                                                        start_time,
-                                                        end_time
-                                                    );
-                                                   
-                                                    match Request::get(&url)
-                                                        .header("Authorization", &format!("Bearer {}", token))
-                                                        .send()
-                                                        .await {
-                                                        Ok(response) => {
-                                                            if response.status() == 200 {
-                                                                if let Ok(data) = response.json::<serde_json::Value>().await {
-                                                                    web_sys::console::log_1(&format!("Calendar events: {:?}", data).into());
-                                                                }
-                                                            } else {
-                                                                error.set(Some("Failed to fetch calendar events".to_string()));
-                                                            }
-                                                        }
-                                                        Err(e) => {
-                                                            error.set(Some(format!("Network error: {}", e)));
-                                                        }
+                                    // Get today's start and end times in RFC3339 format
+                                    let now = web_sys::js_sys::Date::new_0();
+                                    let today_start = web_sys::js_sys::Date::new_0();
+                                    let today_end = web_sys::js_sys::Date::new_0();
+                                    today_start.set_hours(0);
+                                    today_start.set_minutes(0);
+                                    today_start.set_seconds(0);
+                                    today_start.set_milliseconds(0);
+
+                                    today_end.set_hours(23);
+                                    today_end.set_minutes(59);
+                                    today_end.set_seconds(59);
+                                    today_end.set_milliseconds(999);
+
+                                    let start_time = today_start.to_iso_string().as_string().unwrap();
+                                    let end_time = today_end.to_iso_string().as_string().unwrap();
+
+                                    spawn_local(async move {
+                                        let url = format!(
+                                            "/api/calendar/events?start={}&end={}",
+                                            start_time,
+                                            end_time
+                                        );
+
+                                        match Api::get(&url)
+                                            .send()
+                                            .await {
+                                            Ok(response) => {
+                                                if response.status() == 200 {
+                                                    if let Ok(data) = response.json::<serde_json::Value>().await {
+                                                        web_sys::console::log_1(&format!("Calendar events: {:?}", data).into());
                                                     }
-                                                });
+                                                } else {
+                                                    error.set(Some("Failed to fetch calendar events".to_string()));
+                                                }
+                                            }
+                                            Err(e) => {
+                                                error.set(Some(format!("Network error: {}", e)));
                                             }
                                         }
-                                    }
+                                    });
                                 })
                             };
                             html! {

@@ -44,6 +44,7 @@ pub mod login {
                 wasm_bindgen_futures::spawn_local(async move {
                     println!("Attempting login for email: {}", &email);
                     match Request::post(&format!("{}/api/login", config::get_backend_url()))
+                        .credentials(web_sys::RequestCredentials::Include)
                         .json(&LoginRequest { email, password })
                         .unwrap()
                         .send()
@@ -51,30 +52,17 @@ pub mod login {
                     {
                         Ok(response) => {
                             if response.ok() {
-                                log!("Login request successful, parsing response...");
-                                match response.json::<LoginResponse>().await {
-                                    Ok(resp) => {
-                                        let window = web_sys::window().unwrap();
-                                        if let Ok(Some(storage)) = window.local_storage() {
-                                            if storage.set_item("token", &resp.token).is_ok() {
-                                                log!("Token stored successfully in localStorage");
-                                                error_setter.set(None);
-                                                success_setter.set(Some("Login successful! Redirecting...".to_string()));
-                                               
-                                                // Redirect after a short delay to show the success message
-                                                let window_clone = window.clone();
-                                                wasm_bindgen_futures::spawn_local(async move {
-                                                    gloo_timers::future::TimeoutFuture::new(1_000).await;
-                                                    let _ = window_clone.location().set_href("/");
-                                                });
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        log!("Error parsing login response:", e.to_string());
-                                        error_setter.set(Some("Failed to parse server response".to_string()));
-                                    }
-                                }
+                                log!("Login request successful, cookies set by backend");
+                                error_setter.set(None);
+                                success_setter.set(Some("Login successful! Redirecting...".to_string()));
+
+                                // Force a full page reload to ensure cookies are properly loaded
+                                // Increase delay to ensure cookies are saved
+                                let window = web_sys::window().unwrap();
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    gloo_timers::future::TimeoutFuture::new(2_000).await;
+                                    let _ = window.location().set_href("/");
+                                });
                             } else {
                                 log!("Login request failed with status:", response.status());
                                 match response.json::<ErrorResponse>().await {
@@ -626,6 +614,7 @@ pub mod register {
     use crate::Route;
     use crate::config;
     use crate::SelfHostingStatus;
+    use gloo_console::log;
     #[derive(Properties, PartialEq)]
     pub struct RegisterProps {
         #[prop_or(SelfHostingStatus::Normal)]
@@ -682,35 +671,33 @@ pub mod register {
                 let success_setter = success_setter.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     match Request::post(&format!("{}/api/self-hosted/login", config::get_backend_url()))
+                        .credentials(web_sys::RequestCredentials::Include)
                         .json(&SelfHostedLoginRequest { email: email.clone(), password })
                         .unwrap()
                         .send()
                         .await
                     {
-                        Ok(resp) => {
-                            if resp.ok() {
-                                match resp.json::<RegisterResponse>().await {
+                        Ok(response) => {
+                            if response.ok() {
+                                match response.json::<RegisterResponse>().await {
                                     Ok(resp) => {
+                                        log!("Self-hosted login successful, cookies set by backend");
+                                        error_setter.set(None);
+                                        success_setter.set(Some(resp.message));
+
+                                        // Redirect to home page after a short delay
                                         let window = web_sys::window().unwrap();
-                                        if let Ok(Some(storage)) = window.local_storage() {
-                                            if storage.set_item("token", &resp.token).is_ok() {
-                                                error_setter.set(None);
-                                                success_setter.set(Some(resp.message));
-                                              
-                                                let window_clone = window.clone();
-                                                wasm_bindgen_futures::spawn_local(async move {
-                                                    gloo_timers::future::TimeoutFuture::new(1_000).await;
-                                                    let _ = window_clone.location().set_href("/");
-                                                });
-                                            }
-                                        }
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            gloo_timers::future::TimeoutFuture::new(1_000).await;
+                                            let _ = window.location().set_href("/");
+                                        });
                                     }
                                     Err(_) => {
                                         error_setter.set(Some("Failed to parse server response".to_string()));
                                     }
                                 }
                             } else {
-                                match resp.json::<ErrorResponse>().await {
+                                match response.json::<ErrorResponse>().await {
                                     Ok(error_response) => {
                                         error_setter.set(Some(error_response.error));
                                     }
@@ -751,6 +738,7 @@ pub mod register {
                 }
                 wasm_bindgen_futures::spawn_local(async move {
                     match Request::post(&format!("{}/api/register", config::get_backend_url()))
+                        .credentials(web_sys::RequestCredentials::Include)
                         .json(&RegisterRequest {
                             email,
                             password,
@@ -760,31 +748,27 @@ pub mod register {
                         .send()
                         .await
                     {
-                        Ok(resp) => {
-                            if resp.ok() {
-                                match resp.json::<RegisterResponse>().await {
+                        Ok(response) => {
+                            if response.ok() {
+                                match response.json::<RegisterResponse>().await {
                                     Ok(resp) => {
+                                        log!("Registration successful, cookies set by backend");
+                                        error_setter.set(None);
+                                        success_setter.set(Some(resp.message));
+
+                                        // Redirect to home page after a short delay
                                         let window = web_sys::window().unwrap();
-                                        if let Ok(Some(storage)) = window.local_storage() {
-                                            if storage.set_item("token", &resp.token).is_ok() {
-                                                error_setter.set(None);
-                                                success_setter.set(Some(resp.message));
-                                              
-                                                // Redirect to pricing page after a short delay
-                                                let window_clone = window.clone();
-                                                wasm_bindgen_futures::spawn_local(async move {
-                                                    gloo_timers::future::TimeoutFuture::new(1_000).await;
-                                                    let _ = window_clone.location().set_href("/");
-                                                });
-                                            }
-                                        }
+                                        wasm_bindgen_futures::spawn_local(async move {
+                                            gloo_timers::future::TimeoutFuture::new(1_000).await;
+                                            let _ = window.location().set_href("/");
+                                        });
                                     }
                                     Err(_) => {
                                         error_setter.set(Some("Failed to parse server response".to_string()));
                                     }
                                 }
                             } else {
-                                match resp.json::<ErrorResponse>().await {
+                                match response.json::<ErrorResponse>().await {
                                     Ok(error_response) => {
                                         error_setter.set(Some(error_response.error));
                                     }

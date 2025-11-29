@@ -7,6 +7,7 @@ use wasm_bindgen::JsValue;
 use crate::config;
 use serde_json::json;
 use serde::{Deserialize, Serialize};
+use crate::utils::api::Api;
 use gloo_timers::future::TimeoutFuture;
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Room {
@@ -107,41 +108,32 @@ pub fn monitored_contacts_section(props: &MonitoredContactsProps) -> Html {
             if service == "imap" {
                 return;
             }
-            if let Some(tok) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                let search_results = search_results.clone();
-                let show_suggestions = show_suggestions.clone();
-                let is_searching = is_searching.clone();
-                is_searching.set(true);
-            
-                spawn_local(async move {
-                    match Request::get(&format!(
-                        "{}/api/{}/search-rooms?search={}",
-                        crate::config::get_backend_url(),
-                        service,
-                        urlencoding::encode(&search_term)
-                    ))
-                    .header("Authorization", &format!("Bearer {}", tok))
-                    .send()
-                    .await
-                    {
-                        Ok(response) => {
-                            if let Ok(rooms) = response.json::<Vec<Room>>().await {
-                                search_results.set(rooms);
-                                show_suggestions.set(true);
-                            }
-                        }
-                        Err(e) => {
-                            web_sys::console::log_1(&format!("Search error: {}", e).into());
+            let search_results = search_results.clone();
+            let show_suggestions = show_suggestions.clone();
+            let is_searching = is_searching.clone();
+            is_searching.set(true);
+
+            spawn_local(async move {
+                match Api::get(&format!(
+                    "/api/{}/search-rooms?search={}",
+                    service,
+                    urlencoding::encode(&search_term)
+                ))
+                .send()
+                .await
+                {
+                    Ok(response) => {
+                        if let Ok(rooms) = response.json::<Vec<Room>>().await {
+                            search_results.set(rooms);
+                            show_suggestions.set(true);
                         }
                     }
-                    is_searching.set(false);
-                });
-            }
+                    Err(e) => {
+                        web_sys::console::log_1(&format!("Search error: {}", e).into());
+                    }
+                }
+                is_searching.set(false);
+            });
         })
     };
     let refresh_from_server = {
@@ -150,40 +142,29 @@ pub fn monitored_contacts_section(props: &MonitoredContactsProps) -> Html {
         let estimated_monthly_price = estimated_monthly_price.clone();
         let on_change = props.on_change.clone();
         Callback::from(move |_| {
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                let contacts_local = contacts_local.clone();
-                let average_per_day = average_per_day.clone();
-                let estimated_monthly_price = estimated_monthly_price.clone();
-                let on_change = on_change.clone();
-                spawn_local(async move {
-                    if let Ok(resp) = Request::get(&format!(
-                        "{}/api/filters/monitored-contacts",
-                        config::get_backend_url(),
-                    ))
-                    .header("Authorization", &format!("Bearer {}", token))
+            let contacts_local = contacts_local.clone();
+            let average_per_day = average_per_day.clone();
+            let estimated_monthly_price = estimated_monthly_price.clone();
+            let on_change = on_change.clone();
+            spawn_local(async move {
+                if let Ok(resp) = Api::get("/api/filters/monitored-contacts")
                     .send()
                     .await
-                    {
-                        info!("Response status: {}", resp.status());
-                        if let Ok(response) = resp.json::<MonitoredContactsResponse>().await {
-                            info!("Received contacts: {:?}", response.contacts);
-                            contacts_local.set(response.contacts.clone());
-                            average_per_day.set(response.average_per_day);
-                            estimated_monthly_price.set(response.estimated_monthly_price);
-                            on_change.emit(response.contacts);
-                        } else {
-                            info!("Failed to parse contacts response as JSON");
-                        }
+                {
+                    info!("Response status: {}", resp.status());
+                    if let Ok(response) = resp.json::<MonitoredContactsResponse>().await {
+                        info!("Received contacts: {:?}", response.contacts);
+                        contacts_local.set(response.contacts.clone());
+                        average_per_day.set(response.average_per_day);
+                        estimated_monthly_price.set(response.estimated_monthly_price);
+                        on_change.emit(response.contacts);
                     } else {
-                        info!("Failed to fetch contacts");
+                        info!("Failed to parse contacts response as JSON");
                     }
-                });
-            }
+                } else {
+                    info!("Failed to fetch contacts");
+                }
+            });
         })
     };
     // Load checks when component mounts
@@ -223,74 +204,66 @@ pub fn monitored_contacts_section(props: &MonitoredContactsProps) -> Html {
                 return;
             }
     
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                let new_contact = new_contact.clone();
-                let refresh = refresh.clone();
-                let service_type = service_type.clone();
-                let noti_mode = if *is_all_mode { "all".to_string() } else { "focus".to_string() };
-                let noti_type = if *is_all_mode {
-                    Some((*selected_noti_type).clone())
-                } else {
-                    Some("sms".to_string())
-                };
-                let current_tab = current_tab.clone();
-                let error_message = error_message.clone();
-                let is_all_mode = is_all_mode.clone();
-                spawn_local(async move {
-                    let _ = Request::post(&format!(
-                        "{}/api/filters/monitored-contact/{}",
-                        config::get_backend_url(),
-                        service_type
-                    ))
-                    .header("Authorization", &format!("Bearer {}", token))
-                    .json(&MonitoredContactRequest {
-                        sender: identifier,
-                        service_type: service_type.clone(),
-                        noti_type,
-                        noti_mode: noti_mode,
-                    })
-                    .unwrap()
-                    .send()
-                    .await;
+            let new_contact = new_contact.clone();
+            let refresh = refresh.clone();
+            let service_type = service_type.clone();
+            let noti_mode = if *is_all_mode { "all".to_string() } else { "focus".to_string() };
+            let noti_type = if *is_all_mode {
+                Some((*selected_noti_type).clone())
+            } else {
+                Some("sms".to_string())
+            };
+            let current_tab = current_tab.clone();
+            let error_message = error_message.clone();
+            let is_all_mode = is_all_mode.clone();
+            spawn_local(async move {
+                let result = Api::post(&format!(
+                    "/api/filters/monitored-contact/{}",
+                    service_type
+                ))
+                .header("Content-Type", "application/json")
+                .body(serde_json::to_string(&MonitoredContactRequest {
+                    sender: identifier,
+                    service_type: service_type.clone(),
+                    noti_type,
+                    noti_mode: noti_mode,
+                }).unwrap())
+                .send()
+                .await;
+
+                // Only clear and refresh if the request was successful
+                if result.is_ok() && result.unwrap().ok() {
                     new_contact.set(String::new());
                     is_all_mode.set(false);
                     error_message.set(None);
+
+                    // Small delay to ensure backend has processed the request
+                    TimeoutFuture::new(100).await;
+
                     refresh.emit(());
                     current_tab.set(service_type);
-                });
-            }
+                } else {
+                    error_message.set(Some("Failed to add contact. Please try again.".to_string()));
+                }
+            });
         })
     };
     let delete_monitored_contact = {
         let refresh = refresh_from_server.clone();
         Callback::from(move |(identifier, service_type): (String, String)| {
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                let refresh = refresh.clone();
-        
-                spawn_local(async move {
-                    let _ = Request::delete(&format!(
-                        "{}/api/filters/monitored-contact/{}/{}",
-                        config::get_backend_url(),
-                        service_type,
-                        identifier
-                    ))
-                    .header("Authorization", &format!("Bearer {}", token))
-                    .send()
-                    .await;
-            
-                    refresh.emit(());
-                });
-            }
+            let refresh = refresh.clone();
+
+            spawn_local(async move {
+                let _ = Api::delete(&format!(
+                    "/api/filters/monitored-contact/{}/{}",
+                    service_type,
+                    identifier
+                ))
+                .send()
+                .await;
+
+                refresh.emit(());
+            });
         })
     };
     let phone_number = props.phone_number.clone();

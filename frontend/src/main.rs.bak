@@ -5,9 +5,6 @@ use web_sys::{window, MouseEvent};
 use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 mod config;
-mod utils {
-    pub mod api;
-}
 mod profile {
     pub mod stripe;
     pub mod billing_credits;
@@ -77,7 +74,6 @@ use pages::{
     home::Home,
     faq::Faq,
     supported_countries::SupportedCountries,
-    home::is_logged_in,
     termsprivacy::{TermsAndConditions, PrivacyPolicy},
     money::UnifiedPricing,
     self_host_instructions::SelfHostInstructions,
@@ -99,7 +95,6 @@ use auth::{
 use profile::profile::Billing;
 use admin::dashboard::AdminDashboard;
 use crate::profile::billing_models::UserProfile;
-use crate::utils::api::Api;
 use gloo_net::http::Request;
 #[derive(Clone, PartialEq)]
 pub enum SelfHostingStatus {
@@ -254,22 +249,22 @@ pub fn twilio_hosted_instructions_wrapper() -> Html {
    
     {
         let profile_data = profile_data.clone();
-
+       
         use_effect_with_deps(move |_| {
             wasm_bindgen_futures::spawn_local(async move {
-                match Api::get("/api/profile")
-                    .send()
-                    .await
-                {
-                    Ok(response) => {
-                        if let Ok(profile) = response.json::<UserProfile>().await {
-                            profile_data.set(Some(profile));
+                match Request::get(&format!("{}/api/profile", config::get_backend_url()))                        .send()
+                        .await
+                    {
+                        Ok(response) => {
+                            if let Ok(profile) = response.json::<UserProfile>().await {
+                                profile_data.set(Some(profile));
+                            }
                         }
+                        Err(_) => {}
                     }
-                    Err(_) => {}
                 }
             });
-
+           
             || ()
         }, ());
     }
@@ -307,22 +302,22 @@ pub fn self_host_instructions_wrapper() -> Html {
    
     {
         let profile_data = profile_data.clone();
-
+       
         use_effect_with_deps(move |_| {
             wasm_bindgen_futures::spawn_local(async move {
-                match Api::get("/api/profile")
-                    .send()
-                    .await
-                {
-                    Ok(response) => {
-                        if let Ok(profile) = response.json::<UserProfile>().await {
-                            profile_data.set(Some(profile));
+                match Request::get(&format!("{}/api/profile", config::get_backend_url()))                        .send()
+                        .await
+                    {
+                        Ok(response) => {
+                            if let Ok(profile) = response.json::<UserProfile>().await {
+                                profile_data.set(Some(profile));
+                            }
                         }
+                        Err(_) => {}
                     }
-                    Err(_) => {}
                 }
             });
-
+           
             || ()
         }, ());
     }
@@ -397,6 +392,7 @@ pub fn pricing_wrapper() -> Html {
                 let mut ip_code = "Other".to_string();
                 let mut ip_name = "your country".to_string();
 
+                .credentials(web_sys::RequestCredentials::Include)
                 if let Ok(resp) = Request::get("https://ipapi.co/json/").send().await {
                     if let Ok(json) = resp.json::<Value>().await {
                         if let Some(code) = json.get("country_code").and_then(|v| v.as_str()) {
@@ -418,23 +414,32 @@ pub fn pricing_wrapper() -> Html {
                 selected_country.set(ip_code.clone());
                 country_name.set(if ip_code == "Other" { ip_name.clone() } else { country_map.get(&ip_code).cloned().unwrap_or(ip_name.clone()) });
 
-                // Try to get profile with cookie-based auth
-                if let Ok(response) = Api::get("/api/profile")
-                    .send()
-                    .await
-                {
-                    if let Ok(profile) = response.json::<UserProfile>().await {
-                        profile_data.set(Some(profile.clone()));
-                        is_logged_in.set(true);
+                let token_opt = window()
+                    .and_then(|w| w.local_storage().ok())
+                    .flatten()
+                    .and_then(|storage| storage.get_item("token").ok())
+                    .flatten();
 
-                        let phone_country = profile.phone_number_country.unwrap_or("US".to_string());
-                        selected_country.set(phone_country.clone());
+                if let Some(token) = token_opt {
+                    .credentials(web_sys::RequestCredentials::Include)
+                    if let Ok(response) = Request::get(&format!("{}/api/profile", config::get_backend_url()))                        .send()
+                        .await
+                    {
+                        if let Ok(profile) = response.json::<UserProfile>().await {
+                            profile_data.set(Some(profile.clone()));
+                            is_logged_in.set(true);
 
-                        let full_name = country_map.get(&phone_country).cloned().unwrap_or(phone_country.clone());
-                        country_name.set(full_name);
+                            let phone_country = profile.phone_number_country.unwrap_or("US".to_string());
+                            selected_country.set(phone_country.clone());
 
-                        if phone_country == "Other" {
-                            country_name.set(ip_name.clone());
+                            let full_name = country_map.get(&phone_country).cloned().unwrap_or(phone_country.clone());
+                            country_name.set(full_name);
+
+                            if phone_country == "Other" {
+                                country_name.set(ip_name.clone());
+                            }
+                        } else {
+                            is_logged_in.set(false);
                         }
                     } else {
                         is_logged_in.set(false);
@@ -629,97 +634,54 @@ pub fn nav(props: &NavProps) -> Html {
 }
 #[function_component]
 fn App() -> Html {
-    let logged_in = use_state(|| false); // Default to false, will be checked via API
+    let logged_in = use_state(|| false);
     let self_hosting_status = use_state(|| SelfHostingStatus::Normal);
-    let auth_check_started = use_state(|| false); // Track if auth check has started
-
-    // Check authentication status with automatic token refresh
-    {
-        let logged_in = logged_in.clone();
-        let auth_check_started = auth_check_started.clone();
-        use_effect_with_deps(move |_| {
-            // Only run if we haven't started the check yet
-            if !*auth_check_started {
-                auth_check_started.set(true);
-
-                let logged_in = logged_in.clone();
-                wasm_bindgen_futures::spawn_local(async move {
-                    if let Ok(response) = Api::get("/api/auth/status").send().await
-                    {
-                        if response.ok() {
-                            logged_in.set(true);
-                        } else {
-                            logged_in.set(false);
-                        }
-                    } else {
-                        logged_in.set(false);
-                    }
-                });
-            }
-            || ()
-        }, ());
-    }
-
     {
         let self_hosting_status = self_hosting_status.clone();
-        let self_hosting_check_started = use_state(|| false);
         use_effect_with_deps(move |_| {
-            // Only run once
-            if !*self_hosting_check_started {
-                self_hosting_check_started.set(true);
-
-                wasm_bindgen_futures::spawn_local(async move {
-                    info!("Fetching self-hosting status...");
-                    if let Ok(response) = Request::get(&format!("{}/api/self-hosting-status", config::get_backend_url()))
-                        .send()
-                        .await
-                    {
-                        if let Ok(status) = response.text().await {
-                            info!("Received self-hosting status: {}", status);
-                            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&status) {
-                                if let Some(status_value) = json.get("status").and_then(|s| s.as_str()) {
-                                    match status_value {
-                                        "self-hosted-login" => {
-                                            info!("Setting status to SelfHostedLogin");
-                                            self_hosting_status.set(SelfHostingStatus::SelfHostedLogin)
-                                        },
-                                        _ => {
-                                            info!("Setting status to Normal");
-                                            self_hosting_status.set(SelfHostingStatus::Normal)
-                                        },
-                                    }
-                                } else {
-                                    self_hosting_status.set(SelfHostingStatus::Normal)
+            wasm_bindgen_futures::spawn_local(async move {
+                info!("Fetching self-hosting status...");
+                if let Ok(response) = Request::get(&format!("{}/api/self-hosting-status", config::get_backend_url()))
+                    .credentials(web_sys::RequestCredentials::Include)
+                    .send()
+                    .await
+                {
+                    if let Ok(status) = response.text().await {
+                        info!("Received self-hosting status: {}", status);
+                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&status) {
+                            if let Some(status_value) = json.get("status").and_then(|s| s.as_str()) {
+                                match status_value {
+                                    "self-hosted-login" => {
+                                        info!("Setting status to SelfHostedLogin");
+                                        self_hosting_status.set(SelfHostingStatus::SelfHostedLogin)
+                                    },
+                                    _ => {
+                                        info!("Setting status to Normal");
+                                        self_hosting_status.set(SelfHostingStatus::Normal)
+                                    },
                                 }
                             } else {
                                 self_hosting_status.set(SelfHostingStatus::Normal)
                             }
+                        } else {
+                            self_hosting_status.set(SelfHostingStatus::Normal)
                         }
-                    } else {
-                        info!("Failed to fetch self-hosting status");
                     }
-                });
-            }
+                } else {
+                    info!("Failed to fetch self-hosting status");
+                }
+            });
             || ()
         }, ());
     }
     let handle_logout = {
-        let logged_in = logged_in.clone();
         Callback::from(move |_| {
-            let logged_in = logged_in.clone();
-            wasm_bindgen_futures::spawn_local(async move {
-                // Call backend logout endpoint to clear cookies
-                let _ = utils::api::Api::post("/api/logout")
-                    .send()
-                    .await;
-
-                logged_in.set(false);
-
-                // Reload the page to reset state
-                if let Some(window) = web_sys::window() {
+            if let Some(window) = window() {
+                if let Ok(Some(storage)) = window.local_storage() {
+                    let _ = storage.remove_item("token");
                     let _ = window.location().reload();
                 }
-            });
+            }
         })
     };
     html! {

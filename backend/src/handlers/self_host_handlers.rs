@@ -217,7 +217,7 @@ pub async fn update_textbee_creds(
     }
 }
 
-use roxmltree::{Document, Node};
+use roxmltree::Document;
 use reqwest;
 
 #[derive(serde::Deserialize)]

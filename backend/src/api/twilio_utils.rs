@@ -493,7 +493,6 @@ pub async fn delete_twilio_message_media(
 }
 
 use serde_json::json;
-use uuid::Uuid;
 use tokio::spawn;
 
 async fn send_textbee_sms(device_id: String, api_key: String, recipient: String, body: String) -> Result<(), Box<dyn Error>> {
@@ -584,7 +583,7 @@ pub async fn send_conversation_message(
     let history_entry = crate::models::user_models::NewMessageHistory {
         user_id: user.id,
         role: "assistant".to_string(),
-        encrypted_content: body.clone().to_string(),
+        encrypted_content: body.to_string(),
         tool_name: None,
         tool_call_id: None,
         tool_calls_json: None,

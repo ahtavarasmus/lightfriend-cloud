@@ -111,7 +111,7 @@ pub fn admin_dashboard() -> Html {
 
             wasm_bindgen_futures::spawn_local(async move {
                 // This endpoint doesn't exist yet - we'll implement it later
-                match Api::get("/api/admin/usage-logs")
+                match Request::get(&format!("{}/api/admin/usage-logs", config::get_backend_url()))
                     .send()
                     .await
                 {
@@ -142,7 +142,7 @@ pub fn admin_dashboard() -> Html {
         let users = users_effect;
         let error = error_effect;
         wasm_bindgen_futures::spawn_local(async move {
-            match Api::get("/api/admin/users")
+            match Request::get(&format!("{}/api/admin/users", config::get_backend_url()))
                 .send()
                 .await
             {
@@ -221,7 +221,7 @@ pub fn admin_dashboard() -> Html {
                                         message: (*message).clone(),
                                     };
 
-                                    match Api::post("/api/admin/broadcast")
+                                    match Request::post(&format!("{}/api/admin/broadcast", config::get_backend_url()))
                                         .json(&broadcast_message)
                                         .unwrap()
                                         .send()
@@ -296,7 +296,7 @@ pub fn admin_dashboard() -> Html {
                                         message: (*email_message).clone(),
                                     };
 
-                                    match Api::post("/api/admin/broadcast-email")
+                                    match Request::post(&format!("{}/api/admin/broadcast-email", config::get_backend_url()))
                                         .json(&broadcast_message)
                                         .unwrap()
                                         .send()
@@ -336,7 +336,7 @@ pub fn admin_dashboard() -> Html {
                                     "param1": "test_value1",
                                     "param2": "test_value2"
                                 });
-                                match Api::post("/testing")
+                                match Request::post(&format!("{}/testing", config::get_backend_url()))
                                     .json(&params)
                                     .unwrap()
                                     .send()
@@ -455,9 +455,7 @@ pub fn admin_dashboard() -> Html {
                                                     form_data.append_with_blob("image", &file).unwrap();
                                                     form_data.append_with_str("message", &(*test_message)).unwrap();
 
-                                                    // Note: Using Request directly for FormData upload (cookies still sent via credentials)
                                                     match Request::post(&format!("{}/api/admin/test-sms-with-image", config::get_backend_url()))
-                                                        .credentials(web_sys::RequestCredentials::Include)
                                                         .body(form_data)
                                                         .send()
                                                         .await
@@ -556,7 +554,7 @@ pub fn admin_dashboard() -> Html {
                                                     test_message.set(String::new());
 
                                                     // Send test message
-                                                    match Api::post("/api/admin/test-sms")
+                                                    match Request::post(&format!("{}/api/admin/test-sms", config::get_backend_url()))
                                                         .json(&json!({
                                                             "message": message_content,
                                                             "user_id": 1
@@ -811,14 +809,14 @@ pub fn admin_dashboard() -> Html {
                                                                                     let users = users.clone();
                                                                                     let error = error.clone();
                                                                                     wasm_bindgen_futures::spawn_local(async move {
-                                                                                        match Api::post(&format!("/api/billing/increase-credits/{}", user_id))
+                                                                                        match Request::post(&format!("{}/api/billing/increase-credits/{}", config::get_backend_url(), user_id))
                                                                                             .send()
                                                                                             .await
                                                                                         {
                                                                                             Ok(response) => {
                                                                                                 if response.ok() {
                                                                                                     // Refresh the users list after increasing credits
-                                                                                                    if let Ok(response) = Api::get("/api/admin/users")
+                                                                                                    if let Ok(response) = Request::get(&format!("{}/api/admin/users", config::get_backend_url()))
                                                                                                         .send()
                                                                                                         .await
                                                                                                     {
@@ -850,14 +848,14 @@ pub fn admin_dashboard() -> Html {
                                                                                     let users = users.clone();
                                                                                     let error = error.clone();
                                                                                     wasm_bindgen_futures::spawn_local(async move {
-                                                                                        match Api::post(&format!("/api/billing/reset-credits/{}", user_id))
+                                                                                        match Request::post(&format!("{}/api/billing/reset-credits/{}", config::get_backend_url(), user_id))
                                                                                             .send()
                                                                                             .await
                                                                                         {
                                                                                             Ok(response) => {
                                                                                                 if response.ok() {
                                                                                                     // Refresh the users list after resetting credits
-                                                                                                    if let Ok(response) = Api::get("/api/admin/users")
+                                                                                                    if let Ok(response) = Request::get(&format!("{}/api/admin/users", config::get_backend_url()))
                                                                                                         .send()
                                                                                                         .await
                                                                                                     {
@@ -890,14 +888,14 @@ pub fn admin_dashboard() -> Html {
                                                                                     let users = users.clone();
                                                                                     let error = error.clone();
                                                                                     wasm_bindgen_futures::spawn_local(async move {
-                                                                                        match Api::post(&format!("/api/admin/monthly-credits/{}/{}", user_id, 10.0))
+                                                                                        match Request::post(&format!("{}/api/admin/monthly-credits/{}/{}", config::get_backend_url(), user_id, 10.0))
                                                                                             .send()
                                                                                             .await
                                                                                         {
                                                                                             Ok(response) => {
                                                                                                 if response.ok() {
                                                                                                     // Refresh the users list
-                                                                                                    if let Ok(response) = Api::get("/api/admin/users")
+                                                                                                    if let Ok(response) = Request::get(&format!("{}/api/admin/users", config::get_backend_url()))
                                                                                                         .send()
                                                                                                         .await
                                                                                                     {
@@ -929,14 +927,14 @@ pub fn admin_dashboard() -> Html {
                                                                                     let users = users.clone();
                                                                                     let error = error.clone();
                                                                                     wasm_bindgen_futures::spawn_local(async move {
-                                                                                        match Api::post(&format!("/api/admin/monthly-credits/{}/{}", user_id, -10.0))
+                                                                                        match Request::post(&format!("{}/api/admin/monthly-credits/{}/{}", config::get_backend_url(), user_id, -10.0))
                                                                                             .send()
                                                                                             .await
                                                                                         {
                                                                                             Ok(response) => {
                                                                                                 if response.ok() {
                                                                                                     // Refresh the users list
-                                                                                                    if let Ok(response) = Api::get("/api/admin/users")
+                                                                                                    if let Ok(response) = Request::get(&format!("{}/api/admin/users", config::get_backend_url()))
                                                                                                         .send()
                                                                                                         .await
                                                                                                     {
@@ -971,14 +969,14 @@ pub fn admin_dashboard() -> Html {
                                                                                                 let users = users.clone();
                                                                                                 let error = error.clone();
                                                                                                 wasm_bindgen_futures::spawn_local(async move {
-                                                                                                    match Api::post(&format!("/api/admin/verify/{}", user_id))
+                                                                                                    match Request::post(&format!("{}/api/admin/verify/{}", config::get_backend_url(), user_id))
                                                                                                         .send()
                                                                                                         .await
                                                                                                     {
                                                                                                         Ok(response) => {
                                                                                                             if response.ok() {
                                                                                                                 // Refresh the users list after verifying
-                                                                                                                if let Ok(response) = Api::get("/api/admin/users")
+                                                                                                                if let Ok(response) = Request::get(&format!("{}/api/admin/users", config::get_backend_url()))
                                                                                                                     .send()
                                                                                                                     .await
                                                                                                                 {
@@ -1023,14 +1021,14 @@ pub fn admin_dashboard() -> Html {
                                                                                     };
                                                                                     
                                                                                     wasm_bindgen_futures::spawn_local(async move {
-                                                                                        match Api::post(&format!("/api/admin/discount-tier/{}/{}", user_id, new_tier))
+                                                                                        match Request::post(&format!("{}/api/admin/discount-tier/{}/{}", config::get_backend_url(), user_id, new_tier))
                                                                                             .send()
                                                                                             .await
                                                                                         {
                                                                                             Ok(response) => {
                                                                                                 if response.ok() {
                                                                                                     // Refresh the users list
-                                                                                                    if let Ok(response) = Api::get("/api/admin/users")
+                                                                                                    if let Ok(response) = Request::get(&format!("{}/api/admin/users", config::get_backend_url()))
                                                                                                         .send()
                                                                                                         .await
                                                                                                     {
@@ -1078,14 +1076,14 @@ pub fn admin_dashboard() -> Html {
                                                                                 };
                                                                                     
                                                                                     wasm_bindgen_futures::spawn_local(async move {
-                                                                                        match Api::post(&format!("/api/admin/subscription/{}/{}", user_id, urlencoding::encode(new_tier).trim_end_matches('/')))
+                                                                                        match Request::post(&format!("{}/api/admin/subscription/{}/{}", config::get_backend_url(), user_id, urlencoding::encode(new_tier).trim_end_matches('/')))
                                                                                             .send()
                                                                                             .await
                                                                                         {
                                                                                             Ok(response) => {
                                                                                                 if response.ok() {
                                                                                                     // Refresh the users list
-                                                                                                    if let Ok(response) = Api::get("/api/admin/users")
+                                                                                                    if let Ok(response) = Request::get(&format!("{}/api/admin/users", config::get_backend_url()))
                                                                                                         .send()
                                                                                                         .await
                                                                                                     {
@@ -1182,7 +1180,7 @@ pub fn admin_dashboard() -> Html {
                                                 let user_id = delete_modal.user_id.unwrap();
                                                 
                                                 wasm_bindgen_futures::spawn_local(async move {
-                                                    match Api::delete(&format!("/api/profile/delete/{}", user_id))
+                                                    match Request::delete(&format!("{}/api/profile/delete/{}", config::get_backend_url(), user_id))
                                                         .send()
                                                         .await
                                                     {

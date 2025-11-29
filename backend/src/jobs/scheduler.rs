@@ -3,13 +3,9 @@ use std::sync::Arc;
 use tracing::{debug, error};
 use crate::AppState;
 
-use crate::handlers::imap_handlers::ImapEmailPreview;
 
-use std::env;
 
 use crate::handlers::imap_handlers;
-use crate::api::twilio_utils;
-use reqwest::StatusCode;
 
 async fn initialize_matrix_clients(state: Arc<AppState>) {
     tracing::debug!("Starting Matrix client initialization...");

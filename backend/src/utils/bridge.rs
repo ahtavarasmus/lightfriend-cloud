@@ -4,7 +4,7 @@ use matrix_sdk::{
     Client as MatrixClient,
     room::Room,
     ruma::{
-        events::room::message::{RoomMessageEventContent, SyncRoomMessageEvent, MessageType},
+        events::room::message::{SyncRoomMessageEvent, MessageType},
         events::AnySyncTimelineEvent,
     },
 };
@@ -1314,9 +1314,6 @@ pub async fn handle_bridge_message(
         println!("chat_name: {}", chat_name);
         println!("content: {}", content);
         println!("content contains call: {}", content.contains("Incoming call"));
-
-            let action = user_settings.action_on_critical_message.as_ref().map(|s| s.as_str()).unwrap_or("notify");
-            println!("action: {}", action);
     }
     if let Ok((is_critical, message_opt, first_message_opt)) = crate::proactive::utils::check_message_importance(&state, user_id, &format!("{} from {}: {}", service_cap, chat_name, content), service_cap.as_str(), chat_name.as_str(), content.as_str()).await {
         println!("is critical: {}", is_critical);
@@ -1327,46 +1324,14 @@ pub async fn handle_bridge_message(
                 sender_name.to_lowercase().contains(&clean_priority_sender.to_lowercase())
             });
             println!("is_family: {}", is_family);
-            let action = user_settings.action_on_critical_message.as_ref().map(|s| s.as_str()).unwrap_or("notify");
-            let prompt = "Hi, I'm Lightfriend, your friend's AI assistant. This message looks time-sensitive—since they're not currently on their computer, would you like me to send them a notification about it? Reply \"yes\" or \"no.\"".to_string();
-            let mut should_notify = false;
-            let mut should_ask = false;
-            println!("action: {}", action);
-            match action {
-                "ask_sender" => {
-                    should_ask = true;
-                }
-                "ask_sender_exclude_family" => {
-                    if !is_family {
-                        should_ask = true;
-                    } else {
-                        should_notify = true;
-                    }
-                }
-                "notify_family" => {
-                    if is_family {
-                        should_notify = true;
-                    }
-                }
-                _ => { // includes "notify_call" and default
-                    should_notify = true;
-                }
-            }
-            if should_ask {
-                if member_count <= 3 {
-                    let state_clone = state.clone();
-                    let service_clone = service.clone();
-                    let chat_name_clone = chat_name.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = send_bridge_message(&service_clone, &state_clone, user_id, &chat_name_clone, &prompt, None).await {
-                            tracing::error!("Failed to send AI prompt: {}", e);
-                        }
-                    });
-                    return;
-                } else {
-                    should_notify = true;
-                }
-            }
+            let action = user_settings.action_on_critical_message.as_ref().map(|s| s.as_str());
+            println!("action: {:?}", action);
+
+            let should_notify = match action {
+                Some("notify_family") => is_family,
+                _ => true, // None (notify all) or any other value defaults to notify
+            };
+
             if should_notify {
                 // Check if we recently sent a critical notification to avoid duplicates
                 let notification_type = format!("{}_critical", service);

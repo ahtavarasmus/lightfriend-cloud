@@ -1,9 +1,8 @@
 use yew::prelude::*;
-use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::{window, Event};
 use wasm_bindgen::JsCast;
-use crate::config;
+use crate::utils::api::Api;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::js_sys;
 #[derive(Deserialize, Clone, Debug)]
@@ -41,15 +40,8 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
         Callback::from(move |_| {
             let connection_status = connection_status.clone();
             let error = error.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                spawn_local(async move {
-                    match Request::get(&format!("{}/api/auth/instagram/status", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
+            spawn_local(async move {
+                    match Api::get("/api/auth/instagram/status")
                         .send()
                         .await
                     {
@@ -90,7 +82,6 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
                         }
                     }
                 });
-            }
         })
     };
     {
@@ -118,23 +109,16 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
             let fetch_status = fetch_status.clone();
             let curl_paste_value = (*curl_paste).clone();
             let show_auth_form = show_auth_form.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                is_connecting.set(true);
-                spawn_local(async move {
-                    let request_body = InstagramLoginRequest {
-                        curl_paste: curl_paste_value.clone(),
-                    };
-                    match Request::post(&format!("{}/api/auth/instagram/connect", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .header("Content-Type", "application/json")
-                        .body(serde_json::to_string(&request_body).unwrap())
-                        .send()
-                        .await
+            is_connecting.set(true);
+            spawn_local(async move {
+                let request_body = InstagramLoginRequest {
+                    curl_paste: curl_paste_value.clone(),
+                };
+                match Api::post("/api/auth/instagram/connect")
+                    .header("Content-Type", "application/json")
+                    .body(serde_json::to_string(&request_body).unwrap())
+                    .send()
+                    .await
                     {
                         Ok(response) => {
                             let status_code = response.status();
@@ -228,10 +212,9 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
                             web_sys::console::error_1(&format!("Failed to send Instagram connect request: {}", send_err).into());
                             is_connecting.set(false);
                             error.set(Some(format!("Failed to start Instagram connection: {}", send_err)));
-                        }
                     }
-                });
-            }
+                }
+            });
         })
     };
     let disconnect = {
@@ -244,18 +227,11 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
             let error = error.clone();
             let is_disconnecting = is_disconnecting.clone();
             let show_disconnect_modal = show_disconnect_modal.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                is_disconnecting.set(true);
-                spawn_local(async move {
-                    match Request::delete(&format!("{}/api/auth/instagram/disconnect", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
+            is_disconnecting.set(true);
+            spawn_local(async move {
+                match Api::delete("/api/auth/instagram/disconnect")
+                    .send()
+                    .await
                     {
                         Ok(response) => {
                             if response.ok() {
@@ -274,12 +250,9 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
                             error.set(Some(format!("Failed to send disconnect request: {}", send_err)));
                         }
                     }
-                    is_disconnecting.set(false);
-                    show_disconnect_modal.set(false);
-                });
-            } else {
+                is_disconnecting.set(false);
                 show_disconnect_modal.set(false);
-            }
+            });
         })
     };
     html! {
@@ -399,15 +372,8 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
                                             let fetch_status = fetch_status.clone();
                                             Callback::from(move |_| {
                                                 let fetch_status = fetch_status.clone();
-                                                if let Some(token) = window()
-                                                    .and_then(|w| w.local_storage().ok())
-                                                    .flatten()
-                                                    .and_then(|storage| storage.get_item("token").ok())
-                                                    .flatten()
-                                                {
-                                                    spawn_local(async move {
-                                                        match Request::post(&format!("{}/api/auth/instagram/resync", config::get_backend_url()))
-                                                            .header("Authorization", &format!("Bearer {}", token))
+                                                spawn_local(async move {
+                                                        match Api::post("/api/auth/instagram/resync")
                                                             .send()
                                                             .await
                                                         {
@@ -425,7 +391,6 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
                                                             }
                                                         }
                                                     });
-                                                }
                                             })
                                         }} class="resync-button">
                                             {"Resync Instagram"}
@@ -438,15 +403,8 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
                                     <>
                                         <button onclick={{
                                             Callback::from(move |_| {
-                                                if let Some(token) = window()
-                                                    .and_then(|w| w.local_storage().ok())
-                                                    .flatten()
-                                                    .and_then(|storage| storage.get_item("token").ok())
-                                                    .flatten()
-                                                {
-                                                    spawn_local(async move {
-                                                        match Request::get(&format!("{}/api/instagram/test-messages", config::get_backend_url()))
-                                                            .header("Authorization", &format!("Bearer {}", token))
+                                                spawn_local(async move {
+                                                        match Api::get("/api/instagram/test-messages")
                                                             .send()
                                                             .await
                                                         {
@@ -474,26 +432,18 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
                                                             }
                                                         }
                                                     });
-                                                }
                                             })
                                         }} class="test-button">
                                             {"Test Fetch Messages"}
                                         </button>
                                         <button onclick={{
                                             Callback::from(move |_| {
-                                                if let Some(token) = window()
-                                                    .and_then(|w| w.local_storage().ok())
-                                                    .flatten()
-                                                    .and_then(|storage| storage.get_item("token").ok())
-                                                    .flatten()
-                                                {
-                                                    spawn_local(async move {
+                                                spawn_local(async move {
                                                         let request_body = serde_json::json!({
                                                             "chat_name": "test",
                                                             "message": "testing"
                                                         });
-                                                        match Request::post(&format!("{}/api/instagram/send", config::get_backend_url()))
-                                                            .header("Authorization", &format!("Bearer {}", token))
+                                                        match Api::post("/api/instagram/send")
                                                             .header("Content-Type", "application/json")
                                                             .body(serde_json::to_string(&request_body).unwrap())
                                                             .send()
@@ -515,25 +465,17 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
                                                             }
                                                         }
                                                     });
-                                                }
                                             })
                                         }} class="test-button test-send-button">
                                             {"Test Send Message"}
                                         </button>
                                         <button onclick={{
                                             Callback::from(move |_| {
-                                                if let Some(token) = window()
-                                                    .and_then(|w| w.local_storage().ok())
-                                                    .flatten()
-                                                    .and_then(|storage| storage.get_item("token").ok())
-                                                    .flatten()
-                                                {
-                                                    spawn_local(async move {
+                                                spawn_local(async move {
                                                         let request_body = serde_json::json!({
                                                             "search_term": "test"
                                                         });
-                                                        match Request::post(&format!("{}/api/instagram/search-rooms", config::get_backend_url()))
-                                                            .header("Authorization", &format!("Bearer {}", token))
+                                                        match Api::post("/api/instagram/search-rooms")
                                                             .header("Content-Type", "application/json")
                                                             .body(serde_json::to_string(&request_body).unwrap())
                                                             .send()
@@ -555,7 +497,6 @@ pub fn instagram_connect(props: &InstagramProps) -> Html {
                                                             }
                                                         }
                                                     });
-                                                }
                                             })
                                         }} class="test-button test-search-button">
                                             {"Test Search Rooms"}

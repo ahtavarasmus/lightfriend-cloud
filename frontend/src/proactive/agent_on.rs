@@ -7,6 +7,7 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::window;
 use serde::{Deserialize, Serialize};
 use crate::config;
+use crate::utils::api::Api;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProactiveResponse {
@@ -29,28 +30,17 @@ pub fn proactive_agent_section() -> Html {
         let proactive_enabled = proactive_enabled.clone();
         use_effect_with_deps(
             move |_| {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|s| s.get_item("token").ok())
-                    .flatten()
-                {
-                    spawn_local(async move {
-                        if let Ok(resp) = Request::get(&format!(
-                            "{}/api/profile/proactive-agent",
-                            config::get_backend_url(),
-                        ))
-                        .header("Authorization", &format!("Bearer {}", token))
+                spawn_local(async move {
+                    if let Ok(resp) = Api::get("/api/profile/proactive-agent")
                         .send()
                         .await
-                        {
-                            if let Ok(proactive) = resp.json::<ProactiveResponse>().await {
-                                info!("Received proactive settings from backend: {:?}", proactive);
-                                proactive_enabled.set(proactive.enabled);
-                            }
+                    {
+                        if let Ok(proactive) = resp.json::<ProactiveResponse>().await {
+                            info!("Received proactive settings from backend: {:?}", proactive);
+                            proactive_enabled.set(proactive.enabled);
                         }
-                    });
-                }
+                    }
+                });
                 || ()
             },
             (),
@@ -63,29 +53,18 @@ pub fn proactive_agent_section() -> Html {
         Callback::from(move |new_value: bool| {
             let is_saving = is_saving.clone();
             proactive_enabled.set(new_value.clone());
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                is_saving.set(true);
-                spawn_local(async move {
-                    let request = UpdateProactiveRequest {
-                        enabled: new_value,
-                    };
-                    let result = Request::post(&format!(
-                        "{}/api/profile/proactive-agent",
-                        config::get_backend_url(),
-                    ))
-                    .header("Authorization", &format!("Bearer {}", token))
-                    .json(&request)
-                    .unwrap()
+            is_saving.set(true);
+            spawn_local(async move {
+                let request = UpdateProactiveRequest {
+                    enabled: new_value,
+                };
+                let result = Api::post("/api/profile/proactive-agent")
+                    .header("Content-Type", "application/json")
+                    .body(serde_json::to_string(&request).unwrap())
                     .send()
                     .await;
-                    is_saving.set(false);
-                });
-            }
+                is_saving.set(false);
+            });
         })
     };
 

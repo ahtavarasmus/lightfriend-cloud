@@ -3,7 +3,6 @@ use openai_api_rs::v1::{
     chat_completion,
     types,
 };
-use crate::twilio_sms::TwilioMessageResponse;
 use std::env;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

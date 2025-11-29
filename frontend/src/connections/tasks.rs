@@ -2,8 +2,7 @@ use yew::prelude::*;
 use web_sys::{MouseEvent, js_sys::Date};
 use serde_json::json;
 use wasm_bindgen_futures::spawn_local;
-use gloo_net::http::Request;
-use crate::config;
+use crate::utils::api::Api;
 
 
 
@@ -25,33 +24,25 @@ pub fn tasks_connect(props: &TasksConnectProps) -> Html {
         let tasks_connected = tasks_connected.clone();
         use_effect_with_deps(
             move |_| {
-                if let Some(window) = web_sys::window() {
-                    if let Ok(Some(storage)) = window.local_storage() {
-                        if let Ok(Some(token)) = storage.get_item("token") {
-                            // Google Tasks status
-                            let tasks_connected = tasks_connected.clone();
-                            let token = token.clone();
-                            spawn_local(async move {
-                                let request = Request::get(&format!("{}/api/auth/google/tasks/status", config::get_backend_url()))
-                                    .header("Authorization", &format!("Bearer {}", token))
-                                    .send()
-                                    .await;
+                // Google Tasks status - auth handled by cookies
+                let tasks_connected = tasks_connected.clone();
+                spawn_local(async move {
+                    let request = Api::get("/api/auth/google/tasks/status")
+                        .send()
+                        .await;
 
-                                if let Ok(response) = request {
-                                    if response.ok() {
-                                        if let Ok(data) = response.json::<serde_json::Value>().await {
-                                            if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
-                                                tasks_connected.set(connected);
-                                            }
-                                        }
-                                    } else {
-                                        web_sys::console::log_1(&"Failed to check tasks status".into());
-                                    }
+                    if let Ok(response) = request {
+                        if response.ok() {
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                if let Some(connected) = data.get("connected").and_then(|v| v.as_bool()) {
+                                    tasks_connected.set(connected);
                                 }
-                            });
+                            }
+                        } else {
+                            web_sys::console::log_1(&"Failed to check tasks status".into());
                         }
                     }
-                }
+                });
             },
             () // Empty tuple as dependencies since we want this to run only once on mount
         )
@@ -69,16 +60,13 @@ pub fn tasks_connect(props: &TasksConnectProps) -> Html {
             connecting_tasks.set(true);
             error.set(None);
 
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        spawn_local(async move {
-                            let request = Request::get(&format!("{}/api/auth/google/tasks/login", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await;
+            // Auth handled by cookies - no token check needed
+            spawn_local(async move {
+                let request = Api::get("/api/auth/google/tasks/login")
+                    .send()
+                    .await;
 
-                            match request {
+                match request {
                                 Ok(response) => {
                                     if response.status() == 200 {
                                         if let Ok(data) = response.json::<serde_json::Value>().await {
@@ -100,9 +88,6 @@ pub fn tasks_connect(props: &TasksConnectProps) -> Html {
                             }
                             connecting_tasks.set(false);
                         });
-                    }
-                }
-            }
         })
     };
 
@@ -113,16 +98,13 @@ pub fn tasks_connect(props: &TasksConnectProps) -> Html {
             let tasks_connected = tasks_connected.clone();
             let error = error.clone();
 
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        spawn_local(async move {
-                            let request = Request::delete(&format!("{}/api/auth/google/tasks/connection", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await;
+            // Auth handled by cookies - no token check needed
+            spawn_local(async move {
+                let request = Api::delete("/api/auth/google/tasks/connection")
+                    .send()
+                    .await;
 
-                            match request {
+                match request {
                                 Ok(response) => {
                                     if response.status() == 200 {
                                         tasks_connected.set(false);
@@ -136,9 +118,6 @@ pub fn tasks_connect(props: &TasksConnectProps) -> Html {
                                 }
                             }
                         });
-                    }
-                }
-            }
         })
     };
 
@@ -146,16 +125,14 @@ pub fn tasks_connect(props: &TasksConnectProps) -> Html {
         let error = error.clone();
         Callback::from(move |_: MouseEvent| {
             let error = error.clone();
-            if let Some(window) = web_sys::window() {
-                if let Ok(Some(storage)) = window.local_storage() {
-                    if let Ok(Some(token)) = storage.get_item("token") {
-                        spawn_local(async move {
-                            let request = Request::get(&format!("{}/api/tasks", config::get_backend_url()))
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await;
 
-                            match request {
+            // Auth handled by cookies - no token check needed
+            spawn_local(async move {
+                let request = Api::get("/api/tasks")
+                    .send()
+                    .await;
+
+                match request {
                                 Ok(response) => {
                                     if response.status() == 200 {
                                         if let Ok(data) = response.json::<serde_json::Value>().await {
@@ -170,9 +147,6 @@ pub fn tasks_connect(props: &TasksConnectProps) -> Html {
                                 }
                             }
                         });
-                    }
-                }
-            }
         })
     };
 
@@ -268,38 +242,30 @@ pub fn tasks_connect(props: &TasksConnectProps) -> Html {
                                                             let error = error.clone();
                                                             Callback::from(move |_: MouseEvent| {
                                                                 let error = error.clone();
-                                                                if let Some(window) = web_sys::window() {
-                                                                    if let Ok(Some(storage)) = window.local_storage() {
-                                                                        if let Ok(Some(token)) = storage.get_item("token") {
-                                                                            spawn_local(async move {
-                                                                                let request = Request::post(&format!("{}/api/tasks/create", config::get_backend_url()))
-                                                                                    .header("Authorization", &format!("Bearer {}", token))
-                                                                                    .header("Content-Type", "application/json")
-                                                                                    .json(&json!({
-                                                                                        "title": format!("Test task created at {}", Date::new_0().to_iso_string()),
-                                                                                    }))
-                                                                                    .unwrap()
-                                                                                    .send()
-                                                                                    .await;
+                                                                spawn_local(async move {
+                                                                    let request = Api::post("/api/tasks/create")
+                                                                        .json(&json!({
+                                                                            "title": format!("Test task created at {}", Date::new_0().to_iso_string()),
+                                                                        }))
+                                                                        .unwrap()
+                                                                        .send()
+                                                                        .await;
 
-                                                                                match request {
-                                                                                    Ok(response) => {
-                                                                                        if response.status() == 200 {
-                                                                                            if let Ok(data) = response.json::<serde_json::Value>().await {
-                                                                                                web_sys::console::log_1(&format!("Created task: {:?}", data).into());
-                                                                                            }
-                                                                                        } else {
-                                                                                            error.set(Some("Failed to create task".to_string()));
-                                                                                        }
-                                                                                    }
-                                                                                    Err(e) => {
-                                                                                        error.set(Some(format!("Network error: {}", e)));
-                                                                                    }
+                                                                    match request {
+                                                                        Ok(response) => {
+                                                                            if response.status() == 200 {
+                                                                                if let Ok(data) = response.json::<serde_json::Value>().await {
+                                                                                    web_sys::console::log_1(&format!("Created task: {:?}", data).into());
                                                                                 }
-                                                                            });
+                                                                            } else {
+                                                                                error.set(Some("Failed to create task".to_string()));
+                                                                            }
+                                                                        }
+                                                                        Err(e) => {
+                                                                            error.set(Some(format!("Network error: {}", e)));
                                                                         }
                                                                     }
-                                                                }
+                                                                });
                                                             })
                                                         }
                                                         class="test-button"
@@ -366,38 +332,30 @@ pub fn tasks_connect(props: &TasksConnectProps) -> Html {
                                                             let error = error.clone();
                                                             Callback::from(move |_: MouseEvent| {
                                                                 let error = error.clone();
-                                                                if let Some(window) = web_sys::window() {
-                                                                    if let Ok(Some(storage)) = window.local_storage() {
-                                                                        if let Ok(Some(token)) = storage.get_item("token") {
-                                                                            spawn_local(async move {
-                                                                                let request = Request::post(&format!("{}/api/tasks/create", config::get_backend_url()))
-                                                                                    .header("Authorization", &format!("Bearer {}", token))
-                                                                                    .header("Content-Type", "application/json")
-                                                                                    .json(&json!({
-                                                                                        "title": format!("Test task created at {}", Date::new_0().to_iso_string()),
-                                                                                    }))
-                                                                                    .unwrap()
-                                                                                    .send()
-                                                                                    .await;
+                                                                spawn_local(async move {
+                                                                    let request = Api::post("/api/tasks/create")
+                                                                        .json(&json!({
+                                                                            "title": format!("Test task created at {}", Date::new_0().to_iso_string()),
+                                                                        }))
+                                                                        .unwrap()
+                                                                        .send()
+                                                                        .await;
 
-                                                                                match request {
-                                                                                    Ok(response) => {
-                                                                                        if response.status() == 200 {
-                                                                                            if let Ok(data) = response.json::<serde_json::Value>().await {
-                                                                                                web_sys::console::log_1(&format!("Created task: {:?}", data).into());
-                                                                                            }
-                                                                                        } else {
-                                                                                            error.set(Some("Failed to create task".to_string()));
-                                                                                        }
-                                                                                    }
-                                                                                    Err(e) => {
-                                                                                        error.set(Some(format!("Network error: {}", e)));
-                                                                                    }
+                                                                    match request {
+                                                                        Ok(response) => {
+                                                                            if response.status() == 200 {
+                                                                                if let Ok(data) = response.json::<serde_json::Value>().await {
+                                                                                    web_sys::console::log_1(&format!("Created task: {:?}", data).into());
                                                                                 }
-                                                                            });
+                                                                            } else {
+                                                                                error.set(Some("Failed to create task".to_string()));
+                                                                            }
+                                                                        }
+                                                                        Err(e) => {
+                                                                            error.set(Some(format!("Network error: {}", e)));
                                                                         }
                                                                     }
-                                                                }
+                                                                });
                                                             })
                                                         }
                                                         class="test-button"

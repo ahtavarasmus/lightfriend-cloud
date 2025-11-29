@@ -963,9 +963,20 @@ pub async fn update_digests(
 
 #[derive(Deserialize)]
 pub struct UpdateCriticalRequest {
+    #[serde(default, deserialize_with = "deserialize_double_option")]
     enabled: Option<Option<String>>,
     call_notify: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
     action_on_critical_message: Option<Option<String>>,
+}
+
+// Custom deserializer for Option<Option<T>> to handle {"field": null} correctly
+fn deserialize_double_option<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Ok(Some(Option::deserialize(deserializer)?))
 }
 
 pub async fn update_critical_settings(
@@ -973,7 +984,11 @@ pub async fn update_critical_settings(
     auth_user: AuthUser,
     Json(request): Json<UpdateCriticalRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    println!("Received update_critical_settings request: enabled={:?}, call_notify={:?}, action={:?}",
+        request.enabled, request.call_notify, request.action_on_critical_message);
+
     if let Some(enabled) = request.enabled {
+        println!("Updating critical_enabled to: {:?}", enabled);
         if let Err(e) = state.user_core.update_critical_enabled(auth_user.user_id, enabled) {
             tracing::error!("Failed to update critical enabled setting: {}", e);
             return Err((

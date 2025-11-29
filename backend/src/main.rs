@@ -324,6 +324,8 @@ async fn main() {
         .route("/api/unsubscribe", get(admin_handlers::unsubscribe))
         .route("/api/login", post(auth_handlers::login))
         .route("/api/register", post(auth_handlers::register))
+        .route("/api/logout", post(auth_handlers::logout))
+        .route("/api/auth/refresh", post(auth_handlers::refresh_token))
         .route("/api/password-reset/request", post(auth_handlers::request_password_reset))
         .route("/api/password-reset/verify", post(auth_handlers::verify_password_reset))
         .route("/api/phone-verify/request", post(auth_handlers::request_phone_verify))
@@ -348,6 +350,7 @@ async fn main() {
         .route_layer(middleware::from_fn_with_state(state.clone(), handlers::auth_middleware::require_admin));
     // Protected routes that need user authentication
     let protected_routes = Router::new()
+        .route("/api/auth/status", get(auth_handlers::auth_status))
         .route("/api/profile/delete/{user_id}", delete(profile_handlers::delete_user))
         .route("/api/profile/update", post(profile_handlers::update_profile))
         .route("/api/profile/server-ip", post(self_host_handlers::update_server_ip))

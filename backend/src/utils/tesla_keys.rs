@@ -3,7 +3,7 @@ use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use std::error::Error;
 use std::fs;
 use std::path::Path;
-use tracing::{info, error};
+use tracing::info;
 
 const PRIVATE_KEY_PATH: &str = "./tesla_private_key.pem";
 const PUBLIC_KEY_PATH: &str = "./tesla_public_key.pem";

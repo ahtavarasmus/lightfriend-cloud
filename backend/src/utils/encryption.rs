@@ -5,7 +5,6 @@ use aes_gcm::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use rand::Rng;
-use std::fmt;
 use thiserror::Error;
 
 #[derive(Error, Debug)]

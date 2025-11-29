@@ -2,7 +2,6 @@ use crate::AppState;
 use std::sync::Arc;
 use serde::Deserialize;
 use axum::Json;
-use chrono::{DateTime, Utc};
 
 
 pub fn get_fetch_tasks_tool() -> openai_api_rs::v1::chat_completion::Tool {

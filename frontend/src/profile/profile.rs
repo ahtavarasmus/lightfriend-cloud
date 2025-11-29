@@ -2,8 +2,7 @@ use yew::prelude::*;
 use web_sys::window;
 use yew_router::prelude::*;
 use crate::Route;
-use crate::config;
-use gloo_net::http::Request;
+use crate::utils::api::Api;
 use wasm_bindgen_futures::spawn_local;
 use crate::profile::billing_models::UserProfile;
 use crate::profile::billing_credits::BillingPage;
@@ -65,23 +64,7 @@ pub fn Billing() -> Html {
         }, ());
     }
 
-    // Check authentication
-    {
-        let navigator = navigator.clone();
-        use_effect_with_deps(move |_| {
-            let is_authenticated = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-                .is_some();
-
-            if !is_authenticated {
-                navigator.push(&Route::Home);
-            }
-            || ()
-        }, ());
-    }
+    // Authentication is handled by the profile fetch - if 401, user will be redirected
 
     // Fetch user profile 
     {
@@ -89,41 +72,26 @@ pub fn Billing() -> Html {
         let error = error.clone();
         use_effect_with_deps(move |_| {
             spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
+                match Api::get("/api/profile").send().await
                 {
-                    match Request::get(&format!("{}/api/profile", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            if response.status() == 401 {
-                                // Handle unauthorized access
-                                if let Some(window) = window() {
-                                    if let Ok(Some(storage)) = window.local_storage() {
-                                        let _ = storage.remove_item("token");
-                                        let _ = window.location().set_href("/login");
-                                    }
+                    Ok(response) => {
+                        // Automatic retry handles 401 with token refresh and redirect
+                        // We only need to handle successful responses
+                        if response.ok() {
+                            match response.json::<UserProfile>().await {
+                                Ok(data) => {
+                                    profile.set(Some(data));
                                 }
-                                return;
-                            } else if response.ok() {
-                                match response.json::<UserProfile>().await {
-                                    Ok(data) => {
-                                        profile.set(Some(data));
-                                    }
-                                    Err(_) => {
-                                        error.set(Some("Failed to parse profile data".to_string()));
-                                    }
+                                Err(_) => {
+                                    error.set(Some("Failed to parse profile data".to_string()));
                                 }
                             }
-                        }
-                        Err(_) => {
+                        } else {
                             error.set(Some("Failed to fetch profile".to_string()));
                         }
+                    }
+                    Err(_) => {
+                        error.set(Some("Failed to fetch profile".to_string()));
                     }
                 }
             });

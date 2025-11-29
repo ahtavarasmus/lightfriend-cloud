@@ -10,7 +10,6 @@ use stripe::{
     CreateBillingPortalSession,
     Subscription,
     UpdateSubscription,
-    ListSubscriptions,
 };
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 pub enum SubscriptionType {

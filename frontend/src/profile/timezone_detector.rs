@@ -1,7 +1,6 @@
 use yew::prelude::*;
 use web_sys::window;
-use gloo_net::http::Request;
-use crate::config;
+use crate::utils::api::Api;
 use wasm_bindgen_futures::spawn_local;
 use wasm_bindgen::JsValue;
 use web_sys::js_sys;
@@ -36,18 +35,15 @@ pub fn TimezoneDetector(props: &TimezoneDetectorProps) -> Html {
 
                     if *timezone != tz {
                         timezone.set(tz.clone());
-                        if let Some(token) = window.local_storage().ok().flatten().and_then(|s| s.get_item("token").ok().flatten()) {
-                            spawn_local(async move {
-                                if let Err(e) = Request::post(&format!("{}/api/profile/timezone", config::get_backend_url()))
-                                    .header("Authorization", &format!("Bearer {}", token))
-                                    .json(&serde_json::json!({"timezone": tz}))
-                                    .expect("Failed to build request")
-                                    .send()
-                                    .await {
-                                        log::error!("Failed to send timezone update: {:?}", e);
-                                    }
-                            });
-                        }
+                        spawn_local(async move {
+                            if let Err(e) = Api::post("/api/profile/timezone")
+                                .json(&serde_json::json!({"timezone": tz}))
+                                .expect("Failed to build request")
+                                .send()
+                                .await {
+                                    log::error!("Failed to send timezone update: {:?}", e);
+                                }
+                        });
                     }
                 }
                 || ()

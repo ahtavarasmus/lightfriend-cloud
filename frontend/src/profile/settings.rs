@@ -3,9 +3,8 @@ use log::{info, Level};
 use web_sys::{HtmlInputElement, window};
 use yew_router::prelude::*;
 use crate::Route;
-use crate::config;
+use crate::utils::api::Api;
 use crate::profile::timezone_detector::TimezoneDetector;
-use gloo_net::http::Request;
 use serde::Serialize;
 use wasm_bindgen_futures::spawn_local;
 use crate::profile::billing_models::UserProfile;
@@ -106,32 +105,21 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
             } else {
                 let timer = gloo_timers::callback::Timeout::new(1000, move || {
                     spawn_local(async move {
-                        if let Some(token) = window()
-                            .and_then(|w| w.local_storage().ok())
-                            .flatten()
-                            .and_then(|storage| storage.get_item("token").ok())
-                            .flatten()
+                        let encoded_loc = encode_uri_component(&loc).to_string();
+                        match Api::get(&format!("/api/get_nearby_places?location={}", encoded_loc))
+                            .send()
+                            .await
                         {
-                            let encoded_loc = encode_uri_component(&loc).to_string();
-                            let url = format!("{}/api/get_nearby_places?location={}", config::get_backend_url(), encoded_loc);
-                            match Request::get(&url)
-                                .header("Authorization", &format!("Bearer {}", token))
-                                .send()
-                                .await
-                            {
-                                Ok(response) if response.ok() => {
-                                    if let Ok(json) = response.json::<Vec<String>>().await {
-                                        nearby_places.set(json.join(", "));
-                                    } else {
-                                        error.set(Some("Failed to parse nearby places".to_string()));
-                                    }
-                                }
-                                _ => {
-                                    error.set(Some("Failed to fetch nearby places".to_string()));
+                            Ok(response) if response.ok() => {
+                                if let Ok(json) = response.json::<Vec<String>>().await {
+                                    nearby_places.set(json.join(", "));
+                                } else {
+                                    error.set(Some("Failed to parse nearby places".to_string()));
                                 }
                             }
-                        } else {
-                            error.set(Some("No authentication token found".to_string()));
+                            _ => {
+                                error.set(Some("Failed to fetch nearby places".to_string()));
+                            }
                         }
                     });
                 });
@@ -178,118 +166,91 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
             let save_context = save_context.clone();
             let location = location.clone();
             let nearby_places = nearby_places.clone();
-            // Check authentication first
-            let is_authenticated = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-                .is_some();
-            if !is_authenticated {
-                navigator.push(&Route::Home);
-                return;
-            }
             let props = props.clone();
             spawn_local(async move {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|storage| storage.get_item("token").ok())
-                    .flatten()
+                match Api::post("/api/profile/update")
+                    .json(&UpdateProfileRequest {
+                        email: (*email).clone(),
+                        phone_number: (*phone_number).clone(),
+                        preferred_number: (*preferred_number).clone(),
+                        nickname: (*nickname).clone(),
+                        info: (*info).clone(),
+                        timezone: (*timezone).clone(),
+                        timezone_auto: *timezone_auto.clone(),
+                        agent_language: (*agent_language).clone(),
+                        notification_type: (*notification_type).clone(),
+                        save_context: Some(*save_context),
+                        location: (*location).clone(),
+                        nearby_places: (*nearby_places).clone(),
+                    })
+                    .expect("Failed to build request")
+                    .send()
+                    .await
                 {
-                    match Request::post(&format!("{}/api/profile/update", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .json(&UpdateProfileRequest {
-                            email: (*email).clone(),
-                            phone_number: (*phone_number).clone(),
-                            preferred_number: (*preferred_number).clone(),
-                            nickname: (*nickname).clone(),
-                            info: (*info).clone(),
-                            timezone: (*timezone).clone(),
-                            timezone_auto: *timezone_auto.clone(),
-                            agent_language: (*agent_language).clone(),
-                            notification_type: (*notification_type).clone(),
-                            save_context: Some(*save_context),
-                            location: (*location).clone(),
-                            nearby_places: (*nearby_places).clone(),
-                        })
-                        .expect("Failed to build request")
-                        .send()
-                        .await
-                    {
-                        Ok(response) => {
-                            if response.status() == 401 {
-                                // Token is invalid or expired
-                                if let Some(window) = window() {
-                                    if let Ok(Some(storage)) = window.local_storage() {
-                                        let _ = storage.remove_item("token");
-                                        navigator.push(&Route::Home);
-                                        return;
-                                    }
-                                }
-                            } else if response.ok() {
-                                // Create updated profile
-                                let updated_profile = UserProfile {
-                                    id: (*user_profile).id,
-                                    email: (*email).clone(),
-                                    phone_number: (*phone_number).clone(),
-                                    nickname: Some((*nickname).clone()),
-                                    info: Some((*info).clone()),
-                                    preferred_number: (*preferred_number).clone(),
-                                    timezone: Some((*timezone).clone()),
-                                    timezone_auto: Some(*timezone_auto),
-                                    agent_language: (*agent_language).clone(),
-                                    notification_type: (*notification_type).clone(),
-                                    verified: (*user_profile).verified,
-                                    credits: (*user_profile).credits,
-                                    charge_when_under: (*user_profile).charge_when_under,
-                                    charge_back_to: (*user_profile).charge_back_to,
-                                    stripe_payment_method_id: (*user_profile).stripe_payment_method_id.clone(),
-                                    sub_tier: (*user_profile).sub_tier.clone(),
-                                    credits_left: (*user_profile).credits_left,
-                                    discount: (*user_profile).discount,
-                                    notify: (*user_profile).notify,
-                                    sub_country: (*user_profile).sub_country.clone(),
-                                    save_context: Some(*save_context),
-                                    days_until_billing: (*user_profile).days_until_billing.clone(),
-                                    server_ip: (*user_profile).server_ip.clone(),
-                                    twilio_sid: (*user_profile).twilio_sid.clone(),
-                                    twilio_token: (*user_profile).twilio_token.clone(),
-                                    openrouter_api_key: (*user_profile).openrouter_api_key.clone(),
-                                    textbee_device_id: (*user_profile).textbee_device_id.clone(),
-                                    textbee_api_key: (*user_profile).textbee_api_key.clone(),
-                                    estimated_monitoring_cost: (*user_profile).estimated_monitoring_cost,
-                                    location: Some((*location).clone()),
-                                    nearby_places: Some((*nearby_places).clone()),
-                                    phone_number_country: (*user_profile).phone_number_country.clone(),
-                                };
-                                // Notify parent component
-                                props.on_profile_update.emit(updated_profile.clone());
-                                // Check if phone number was changed
-                                let phone_changed = (*user_profile).phone_number != (*phone_number).clone();
-                           
-                                if phone_changed {
-                                    // If phone number changed, redirect to home for verification
-                                    navigator.push(&Route::Home);
-                                } else {
-                                    success.set(Some("Profile updated successfully".to_string()));
-                                    error.set(None);
-                                    is_editing.set(false);
-                               
-                                    // Clear success message after 3 seconds
-                                    let success_clone = success.clone();
-                                    spawn_local(async move {
-                                        gloo_timers::future::TimeoutFuture::new(3_000).await;
-                                        success_clone.set(None);
-                                    });
-                                }
+                    Ok(response) => {
+                        // Automatic retry handles 401
+                        if response.ok() {
+                            // Create updated profile
+                            let updated_profile = UserProfile {
+                                id: (*user_profile).id,
+                                email: (*email).clone(),
+                                phone_number: (*phone_number).clone(),
+                                nickname: Some((*nickname).clone()),
+                                info: Some((*info).clone()),
+                                preferred_number: (*preferred_number).clone(),
+                                timezone: Some((*timezone).clone()),
+                                timezone_auto: Some(*timezone_auto),
+                                agent_language: (*agent_language).clone(),
+                                notification_type: (*notification_type).clone(),
+                                verified: (*user_profile).verified,
+                                credits: (*user_profile).credits,
+                                charge_when_under: (*user_profile).charge_when_under,
+                                charge_back_to: (*user_profile).charge_back_to,
+                                stripe_payment_method_id: (*user_profile).stripe_payment_method_id.clone(),
+                                sub_tier: (*user_profile).sub_tier.clone(),
+                                credits_left: (*user_profile).credits_left,
+                                discount: (*user_profile).discount,
+                                notify: (*user_profile).notify,
+                                sub_country: (*user_profile).sub_country.clone(),
+                                save_context: Some(*save_context),
+                                days_until_billing: (*user_profile).days_until_billing.clone(),
+                                server_ip: (*user_profile).server_ip.clone(),
+                                twilio_sid: (*user_profile).twilio_sid.clone(),
+                                twilio_token: (*user_profile).twilio_token.clone(),
+                                openrouter_api_key: (*user_profile).openrouter_api_key.clone(),
+                                textbee_device_id: (*user_profile).textbee_device_id.clone(),
+                                textbee_api_key: (*user_profile).textbee_api_key.clone(),
+                                estimated_monitoring_cost: (*user_profile).estimated_monitoring_cost,
+                                location: Some((*location).clone()),
+                                nearby_places: Some((*nearby_places).clone()),
+                                phone_number_country: (*user_profile).phone_number_country.clone(),
+                            };
+                            // Notify parent component
+                            props.on_profile_update.emit(updated_profile.clone());
+                            // Check if phone number was changed
+                            let phone_changed = (*user_profile).phone_number != (*phone_number).clone();
+
+                            if phone_changed {
+                                // If phone number changed, redirect to home for verification
+                                navigator.push(&Route::Home);
                             } else {
-                                error.set(Some("Failed to update profile. Phone number/email already exists?".to_string()));
+                                success.set(Some("Profile updated successfully".to_string()));
+                                error.set(None);
+                                is_editing.set(false);
+
+                                // Clear success message after 3 seconds
+                                let success_clone = success.clone();
+                                spawn_local(async move {
+                                    gloo_timers::future::TimeoutFuture::new(3_000).await;
+                                    success_clone.set(None);
+                                });
                             }
+                        } else {
+                            error.set(Some("Failed to update profile. Phone number/email already exists?".to_string()));
                         }
-                        Err(_) => {
-                            error.set(Some("Failed to send request".to_string()));
-                        }
+                    }
+                    Err(_) => {
+                        error.set(Some("Failed to send request".to_string()));
                     }
                 }
             });
@@ -601,32 +562,21 @@ pub fn SettingsPage(props: &SettingsPageProps) -> Html {
                                     return;
                                 }
                                 spawn_local(async move {
-                                    if let Some(token) = window()
-                                        .and_then(|w| w.local_storage().ok())
-                                        .flatten()
-                                        .and_then(|storage| storage.get_item("token").ok())
-                                        .flatten()
+                                    let encoded_loc = encode_uri_component(&loc).to_string();
+                                    match Api::get(&format!("/api/profile/get_nearby_places?location={}", encoded_loc))
+                                        .send()
+                                        .await
                                     {
-                                        let encoded_loc = encode_uri_component(&loc).to_string();
-                                        let url = format!("{}/api/profile/get_nearby_places?location={}", config::get_backend_url(), encoded_loc);
-                                        match Request::get(&url)
-                                            .header("Authorization", &format!("Bearer {}", token))
-                                            .send()
-                                            .await
-                                        {
-                                            Ok(response) if response.ok() => {
-                                                if let Ok(json) = response.json::<Vec<String>>().await {
-                                                    nearby_places.set(json.join(", "));
-                                                } else {
-                                                    error.set(Some("Failed to parse nearby places".to_string()));
-                                                }
-                                            }
-                                            _ => {
-                                                error.set(Some("Failed to fetch nearby places".to_string()));
+                                        Ok(response) if response.ok() => {
+                                            if let Ok(json) = response.json::<Vec<String>>().await {
+                                                nearby_places.set(json.join(", "));
+                                            } else {
+                                                error.set(Some("Failed to parse nearby places".to_string()));
                                             }
                                         }
-                                    } else {
-                                        error.set(Some("No authentication token found".to_string()));
+                                        _ => {
+                                            error.set(Some("Failed to fetch nearby places".to_string()));
+                                        }
                                     }
                                 });
                             })

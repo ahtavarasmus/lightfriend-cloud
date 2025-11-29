@@ -59,7 +59,7 @@ pub async fn uber_login(
         ));
     }
     let state_token = format!("{}:{}", record.id.0, csrf_token.secret());
-    let mut auth_builder = state
+    let auth_builder = state
         .uber_oauth_client
         .authorize_url(|| CsrfToken::new(state_token.clone()))
         .add_scope(Scope::new("profile".to_string()))

@@ -1,5 +1,6 @@
 use yew::prelude::*;
 use gloo_net::http::Request;
+use crate::utils::api::Api;
 use log::info;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::{window, Event, HtmlInputElement};
@@ -36,7 +37,6 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
     let call_notify = use_state(|| true);
     let is_saving = use_state(|| false);
     let mode = use_state(|| "all".to_string());
-    let family_no_followup = use_state(|| false);
     // States for info toggles
     let show_message_info = use_state(|| false);
     let show_action_info = use_state(|| false);
@@ -47,56 +47,31 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
         let estimated_price = estimated_price.clone();
         let call_notify = call_notify.clone();
         let mode = mode.clone();
-        let family_no_followup = family_no_followup.clone();
         use_effect_with_deps(
             move |_| {
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|s| s.get_item("token").ok())
-                    .flatten()
-                {
-                    spawn_local(async move {
-                        if let Ok(resp) = Request::get(&format!(
-                            "{}/api/profile/critical",
-                            config::get_backend_url(),
-                        ))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
-                        {
-                            if let Ok(critical) = resp.json::<CriticalResponse>().await {
-                                info!("Received critical settings from backend: {:?}", critical);
-                                critical_enabled.set(critical.enabled);
-                                average_critical.set(critical.average_critical_per_day);
-                                estimated_price.set(critical.estimated_monthly_price);
-                                call_notify.set(critical.call_notify);
-                                match critical.action_on_critical_message {
-                                    None => {
-                                        mode.set("all".to_string());
-                                        family_no_followup.set(false);
-                                    },
-                                    Some(ref val) if val == "notify_family" => {
-                                        mode.set("family".to_string());
-                                        family_no_followup.set(false);
-                                    },
-                                    Some(ref val) if val == "ask_sender" => {
-                                        mode.set("ask".to_string());
-                                        family_no_followup.set(false);
-                                    },
-                                    Some(ref val) if val == "ask_sender_exclude_family" => {
-                                        mode.set("ask".to_string());
-                                        family_no_followup.set(true);
-                                    },
-                                    _ => {
-                                        mode.set("all".to_string());
-                                        family_no_followup.set(false);
-                                    },
-                                }
+                // Auth handled by cookies
+                spawn_local(async move {
+                    if let Ok(resp) = Api::get("/api/profile/critical")
+                    .send()
+                    .await
+                    {
+                        if let Ok(critical) = resp.json::<CriticalResponse>().await {
+                            info!("Received critical settings from backend: {:?}", critical);
+                            critical_enabled.set(critical.enabled);
+                            average_critical.set(critical.average_critical_per_day);
+                            estimated_price.set(critical.estimated_monthly_price);
+                            call_notify.set(critical.call_notify);
+                            match critical.action_on_critical_message {
+                                Some(ref val) if val == "notify_family" => {
+                                    mode.set("family".to_string());
+                                },
+                                _ => {
+                                    mode.set("all".to_string());
+                                },
                             }
                         }
-                    });
-                }
+                    }
+                });
                 || ()
             },
             (),
@@ -107,32 +82,36 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
         let is_saving = is_saving.clone();
         Callback::from(move |new_value: Option<String>| {
             let is_saving = is_saving.clone();
-            critical_enabled.set(new_value.clone());
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                is_saving.set(true);
-                spawn_local(async move {
-                    let request = UpdateCriticalRequest {
-                        enabled: Some(new_value),
-                        call_notify: None,
-                        action_on_critical_message: None,
-                    };
-                    let result = Request::post(&format!(
-                        "{}/api/profile/critical",
-                        config::get_backend_url(),
-                    ))
-                    .header("Authorization", &format!("Bearer {}", token))
-                    .json(&request)
-                    .unwrap()
-                    .send()
-                    .await;
-                    is_saving.set(false);
-                });
-            }
+            let critical_enabled = critical_enabled.clone();
+            // Auth handled by cookies
+            is_saving.set(true);
+            spawn_local(async move {
+                let request = UpdateCriticalRequest {
+                    enabled: Some(new_value.clone()),
+                    call_notify: None,
+                    action_on_critical_message: None,
+                };
+                info!("Sending update request: {:?}", request);
+                match Api::post("/api/profile/critical")
+                .json(&request)
+                .unwrap()
+                .send()
+                .await
+                {
+                    Ok(response) if response.ok() => {
+                        // Only update UI if save was successful
+                        critical_enabled.set(new_value);
+                        info!("Successfully updated critical notification method");
+                    },
+                    Ok(response) => {
+                        info!("Failed to update critical notification method: {}", response.status());
+                    },
+                    Err(e) => {
+                        info!("Error updating critical notification method: {:?}", e);
+                    }
+                }
+                is_saving.set(false);
+            });
         })
     };
     let handle_call_notify_change = {
@@ -140,111 +119,76 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
         let is_saving = is_saving.clone();
         Callback::from(move |new_value: bool| {
             let is_saving = is_saving.clone();
-            call_notify.set(new_value);
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                is_saving.set(true);
-                spawn_local(async move {
-                    let request = UpdateCriticalRequest {
-                        enabled: None,
-                        call_notify: Some(new_value),
-                        action_on_critical_message: None,
-                    };
-                    let result = Request::post(&format!(
-                        "{}/api/profile/critical",
-                        config::get_backend_url(),
-                    ))
-                    .header("Authorization", &format!("Bearer {}", token))
-                    .json(&request)
-                    .unwrap()
-                    .send()
-                    .await;
-                    is_saving.set(false);
-                });
-            }
+            let call_notify = call_notify.clone();
+            // Auth handled by cookies
+            is_saving.set(true);
+            spawn_local(async move {
+                let request = UpdateCriticalRequest {
+                    enabled: None,
+                    call_notify: Some(new_value),
+                    action_on_critical_message: None,
+                };
+                match Api::post("/api/profile/critical")
+                .json(&request)
+                .unwrap()
+                .send()
+                .await
+                {
+                    Ok(response) if response.ok() => {
+                        // Only update UI if save was successful
+                        call_notify.set(new_value);
+                        info!("Successfully updated call notify setting");
+                    },
+                    Ok(response) => {
+                        info!("Failed to update call notify setting: {}", response.status());
+                    },
+                    Err(e) => {
+                        info!("Error updating call notify setting: {:?}", e);
+                    }
+                }
+                is_saving.set(false);
+            });
         })
     };
     let handle_mode_change = {
         let mode = mode.clone();
-        let family_no_followup = family_no_followup.clone();
         let is_saving = is_saving.clone();
         Callback::from(move |new_mode: String| {
             let is_saving = is_saving.clone();
-            let family_no_followup = family_no_followup.clone();
-            mode.set(new_mode.clone());
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                is_saving.set(true);
-                let new_value: Option<String> = match new_mode.as_str() {
-                    "all" => None,
-                    "family" => Some("notify_family".to_string()),
-                    "ask" => Some(if *family_no_followup { "ask_sender_exclude_family".to_string() } else { "ask_sender".to_string() }),
-                    _ => None,
-                };
-                spawn_local(async move {
-                    let request = UpdateCriticalRequest {
-                        enabled: None,
-                        call_notify: None,
-                        action_on_critical_message: Some(new_value),
-                    };
-                    let result = Request::post(&format!(
-                        "{}/api/profile/critical",
-                        config::get_backend_url(),
-                    ))
-                    .header("Authorization", &format!("Bearer {}", token))
-                    .json(&request)
-                    .unwrap()
-                    .send()
-                    .await;
-                    is_saving.set(false);
-                });
-            }
-        })
-    };
-    let handle_family_no_followup_change = {
-        let family_no_followup = family_no_followup.clone();
-        let mode = mode.clone();
-        let is_saving = is_saving.clone();
-        Callback::from(move |new_value: bool| {
-            let is_saving = is_saving.clone();
             let mode = mode.clone();
-            if *mode == "ask" {
-                family_no_followup.set(new_value);
-                if let Some(token) = window()
-                    .and_then(|w| w.local_storage().ok())
-                    .flatten()
-                    .and_then(|s| s.get_item("token").ok())
-                    .flatten()
+            // Auth handled by cookies
+            is_saving.set(true);
+            let new_value: Option<String> = match new_mode.as_str() {
+                "all" => None,
+                "family" => Some("notify_family".to_string()),
+                _ => None,
+            };
+            spawn_local(async move {
+                let request = UpdateCriticalRequest {
+                    enabled: None,
+                    call_notify: None,
+                    action_on_critical_message: Some(new_value),
+                };
+                match Api::post("/api/profile/critical")
+                .json(&request)
+                .unwrap()
+                .send()
+                .await
                 {
-                    is_saving.set(true);
-                    let new_action: Option<String> = Some(if new_value { "ask_sender_exclude_family".to_string() } else { "ask_sender".to_string() });
-                    spawn_local(async move {
-                        let request = UpdateCriticalRequest {
-                            enabled: None,
-                            call_notify: None,
-                            action_on_critical_message: Some(new_action),
-                        };
-                        let result = Request::post(&format!(
-                            "{}/api/profile/critical",
-                            config::get_backend_url(),
-                        ))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .json(&request)
-                        .unwrap()
-                        .send()
-                        .await;
-                        is_saving.set(false);
-                    });
+                    Ok(response) if response.ok() => {
+                        // Only update UI if save was successful
+                        mode.set(new_mode);
+                        info!("Successfully updated action on critical message");
+                    },
+                    Ok(response) => {
+                        info!("Failed to update action on critical message: {}", response.status());
+                    },
+                    Err(e) => {
+                        info!("Error updating action on critical message: {:?}", e);
+                    }
                 }
-            }
+                is_saving.set(false);
+            });
         })
     };
     let phone_number = props.phone_number.clone();
@@ -636,10 +580,6 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
                             <ul>
                                 <li>{"Notify All: Alert for any critical message, regardless of sender."}</li>
                                 <li>{"Special Contacts Only: Alert only if sender is in your special contacts (specified 2 sections up). Does not apply to email which will always follow the notify all setting."}</li>
-                                <li>{"Ask Sender: Lightfriend asks sender the following: \"Hi, I'm Lightfriend, your friend's AI assistant. This message looks time-sensitive—since they're not currently on their computer, would you like me to send them a notification about it? Reply \"yes\" or \"no.\"\". Does not apply to email which will always follow the notify all setting."}</li>
-                                <ul>
-                                    <li>{"Always Notify Special Contacts: For senders who are in your special contacts, notify without follow-up question (only when 'Ask Sender' is selected)."}</li>
-                                </ul>
                             </ul>
                         </div>
                     }
@@ -672,38 +612,6 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
                         <div class="radio-label">
                             {"Special Contacts Only"}
                         </div>
-                    </label>
-                    <label class="radio-option" onclick={
-                        let handle_mode_change = handle_mode_change.clone();
-                        Callback::from(move |_| handle_mode_change.emit("ask".to_string()))
-                    }>
-                        <input
-                            type="radio"
-                            name="message-critical-mode"
-                            checked={*mode == "ask"}
-                        />
-                        <div class="radio-label">
-                            {"Ask Sender"}
-                        </div>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 0.75rem; margin-left: 2.5rem; margin-top: 0.5rem;">
-                        <input
-                            type="checkbox"
-                            checked={*family_no_followup}
-                            disabled={*mode != "ask"}
-                            onchange={Callback::from({
-                                let handle_family_no_followup_change = handle_family_no_followup_change.clone();
-                                let mode = mode.clone();
-                                move |e: Event| {
-                                    if *mode == "ask" {
-                                        if let Some(input) = e.target().and_then(|t| t.dyn_into::<HtmlInputElement>().ok()) {
-                                            handle_family_no_followup_change.emit(input.checked());
-                                        }
-                                    }
-                                }
-                            })}
-                        />
-                        <span class="radio-label">{"Always Notify Special Contacts (No Follow-up)"}</span>
                     </label>
                 </div>
             </div>

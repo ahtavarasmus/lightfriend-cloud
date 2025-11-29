@@ -352,7 +352,7 @@ async fn process_broadcast_messages(
     users: Vec<crate::models::user_models::User>,
     message: String,
 ) {
-    let mut success_count = 0;
+    let success_count = 0;
     let mut failed_count = 0;
 
     for user in users {

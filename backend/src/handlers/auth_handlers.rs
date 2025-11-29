@@ -703,12 +703,12 @@ pub async fn testing_handler(
 }
 
 pub fn generate_tokens_and_response(user_id: i32) -> Result<Response, (StatusCode, Json<serde_json::Value>)> {
-    // Generate access token (short-lived)
+    // Generate access token (1 hour)
     let access_token = encode(
         &Header::default(),
         &json!({
             "sub": user_id,
-            "exp": (Utc::now() + Duration::minutes(15)).timestamp(),
+            "exp": (Utc::now() + Duration::hours(1)).timestamp(),
             "type": "access"
         }),
         &EncodingKey::from_secret(std::env::var("JWT_SECRET_KEY")
@@ -719,12 +719,12 @@ pub fn generate_tokens_and_response(user_id: i32) -> Result<Response, (StatusCod
         Json(json!({"error": "Token generation failed"}))
     ))?;
 
-    // Generate refresh token (long-lived)
+    // Generate refresh token (90 days)
     let refresh_token = encode(
         &Header::default(),
         &json!({
             "sub": user_id,
-            "exp": (Utc::now() + Duration::days(7)).timestamp(),
+            "exp": (Utc::now() + Duration::days(90)).timestamp(),
             "type": "refresh"
         }),
         &EncodingKey::from_secret(std::env::var("JWT_REFRESH_KEY")
@@ -741,16 +741,24 @@ pub fn generate_tokens_and_response(user_id: i32) -> Result<Response, (StatusCod
             Json(json!({"message": "Tokens generated", "token": access_token.clone()})).to_string()
         )
     );
-    let cookie_options = "; HttpOnly; Secure; SameSite=Strict; Path=/";
+    // Don't use Secure flag in development (HTTP), only in production (HTTPS)
+    // Use SameSite=Lax to allow cookies on redirects (Strict blocks them)
+    let is_development = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string()) == "development";
+    let cookie_options = if is_development {
+        "; HttpOnly; SameSite=Lax; Path=/"
+    } else {
+        "; HttpOnly; Secure; SameSite=Lax; Path=/"
+    };
+
     response.headers_mut().insert(
         "Set-Cookie",
-        format!("access_token={}{}; Max-Age=900", access_token, cookie_options)
+        format!("access_token={}{}; Max-Age=3600", access_token, cookie_options)
             .parse()
             .unwrap(),
     );
-    response.headers_mut().insert(
+    response.headers_mut().append(
         "Set-Cookie",
-        format!("refresh_token={}{}; Max-Age=604800", refresh_token, cookie_options)
+        format!("refresh_token={}{}; Max-Age=7776000", refresh_token, cookie_options)
             .parse()
             .unwrap(),
     );
@@ -758,5 +766,51 @@ pub fn generate_tokens_and_response(user_id: i32) -> Result<Response, (StatusCod
         "Content-Type",
         "application/json".parse().unwrap()
     );
+    Ok(response)
+}
+
+pub async fn auth_status(
+    auth_user: AuthUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    Ok(Json(json!({
+        "authenticated": true,
+        "user_id": auth_user.user_id,
+        "is_admin": auth_user.is_admin
+    })))
+}
+
+pub async fn logout() -> Result<Response, StatusCode> {
+    // Create response that clears both authentication cookies
+    let mut response = Response::new(
+        axum::body::Body::from(
+            Json(json!({"message": "Logged out successfully"})).to_string()
+        )
+    );
+
+    let is_development = std::env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string()) == "development";
+    let cookie_clear_options = if is_development {
+        "; HttpOnly; SameSite=Lax; Path=/; Max-Age=0"
+    } else {
+        "; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0"
+    };
+
+    // Clear both cookies by setting Max-Age=0
+    response.headers_mut().insert(
+        "Set-Cookie",
+        format!("access_token={}", cookie_clear_options)
+            .parse()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    );
+    response.headers_mut().append(
+        "Set-Cookie",
+        format!("refresh_token={}", cookie_clear_options)
+            .parse()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?,
+    );
+    response.headers_mut().insert(
+        "Content-Type",
+        "application/json".parse().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    );
+
     Ok(response)
 }

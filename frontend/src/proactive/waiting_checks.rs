@@ -7,6 +7,7 @@ use wasm_bindgen::JsValue;
 use crate::config;
 use serde_json::json;
 use serde::{Deserialize, Serialize};
+use crate::utils::api::Api;
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct WaitingCheck {
     pub content: String,
@@ -44,30 +45,19 @@ pub fn waiting_checks_section(props: &WaitingChecksProps) -> Html {
         let checks_local = checks_local.clone();
         let on_change = props.on_change.clone();
         Callback::from(move |_| {
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                let checks_local = checks_local.clone();
-                let on_change = on_change.clone();
-                spawn_local(async move {
-                    if let Ok(resp) = Request::get(&format!(
-                        "{}/api/filters/waiting-checks",
-                        config::get_backend_url(),
-                    ))
-                    .header("Authorization", &format!("Bearer {}", token))
+            let checks_local = checks_local.clone();
+            let on_change = on_change.clone();
+            spawn_local(async move {
+                if let Ok(resp) = Api::get("/api/filters/waiting-checks")
                     .send()
                     .await
-                    {
-                        if let Ok(list) = resp.json::<Vec<WaitingCheck>>().await {
-                            checks_local.set(list.clone());
-                            on_change.emit(list);
-                        }
+                {
+                    if let Ok(list) = resp.json::<Vec<WaitingCheck>>().await {
+                        checks_local.set(list.clone());
+                        on_change.emit(list);
                     }
-                });
-            }
+                }
+            });
         })
     };
     // Load checks when component mounts
@@ -100,64 +90,46 @@ pub fn waiting_checks_section(props: &WaitingChecksProps) -> Html {
                 return;
             }
           
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                let new_check = new_check.clone();
-                let refresh = refresh.clone();
-                let service_type = service_type.clone();
-                let noti_type = (*selected_noti_type).clone();
-                spawn_local(async move {
-                    let _ = Request::post(&format!(
-                        "{}/api/filters/waiting-check/{}",
-                        config::get_backend_url(),
-                        service_type
-                    ))
-                    .header("Authorization", &format!("Bearer {}", token))
-                    .json(&WaitingCheckRequest {
-                        content: check,
-                        service_type: service_type.clone(),
-                        noti_type: Some(noti_type),
-                    })
-                    .unwrap()
-                    .send()
-                    .await;
-                    new_check.set(String::new());
-                    error_message.set(None);
-                    refresh.emit(());
-                });
-            }
+            let new_check = new_check.clone();
+            let refresh = refresh.clone();
+            let service_type = service_type.clone();
+            let noti_type = (*selected_noti_type).clone();
+            spawn_local(async move {
+                let _ = Api::post(&format!(
+                    "/api/filters/waiting-check/{}",
+                    service_type
+                ))
+                .header("Content-Type", "application/json")
+                .body(serde_json::to_string(&WaitingCheckRequest {
+                    content: check,
+                    service_type: service_type.clone(),
+                    noti_type: Some(noti_type),
+                }).unwrap())
+                .send()
+                .await;
+                new_check.set(String::new());
+                error_message.set(None);
+                refresh.emit(());
+            });
         })
     };
     let delete_waiting_check = {
         let refresh = refresh_from_server.clone();
       
         Callback::from(move |(content, service_type): (String, String)| {
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|s| s.get_item("token").ok())
-                .flatten()
-            {
-                let refresh = refresh.clone();
-              
-                spawn_local(async move {
-                    let _ = Request::delete(&format!(
-                        "{}/api/filters/waiting-check/{}/{}",
-                        config::get_backend_url(),
-                        service_type,
-                        content
-                    ))
-                    .header("Authorization", &format!("Bearer {}", token))
-                    .send()
-                    .await;
-                  
-                    refresh.emit(());
-                });
-            }
+            let refresh = refresh.clone();
+
+            spawn_local(async move {
+                let _ = Api::delete(&format!(
+                    "/api/filters/waiting-check/{}/{}",
+                    service_type,
+                    content
+                ))
+                .send()
+                .await;
+
+                refresh.emit(());
+            });
         })
     };
     let phone_number = props.phone_number.clone();

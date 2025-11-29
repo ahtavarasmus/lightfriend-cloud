@@ -1,9 +1,8 @@
 use yew::prelude::*;
-use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use web_sys::{window, Event};
 use wasm_bindgen::JsCast;
-use crate::config;
+use crate::utils::api::Api;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::js_sys;
 
@@ -47,15 +46,8 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
         Callback::from(move |_| {
             let connection_status = connection_status.clone();
             let error = error.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                spawn_local(async move {
-                    match Request::get(&format!("{}/api/auth/messenger/status", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
+            spawn_local(async move {
+                    match Api::get("/api/auth/messenger/status")
                         .send()
                         .await
                     {
@@ -75,7 +67,6 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
                         }
                     }
                 });
-            }
         })
     };
 
@@ -106,23 +97,16 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
             let fetch_status = fetch_status.clone();
             let curl_paste_value = (*curl_paste).clone();
             let show_auth_form = show_auth_form.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                is_connecting.set(true);
-                spawn_local(async move {
-                    let request_body = MessengerLoginRequest {
-                        curl_paste: curl_paste_value.clone(),
-                    };
-                    match Request::post(&format!("{}/api/auth/messenger/connect", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .header("Content-Type", "application/json")
-                        .body(serde_json::to_string(&request_body).unwrap())
-                        .send()
-                        .await
+            is_connecting.set(true);
+            spawn_local(async move {
+                let request_body = MessengerLoginRequest {
+                    curl_paste: curl_paste_value.clone(),
+                };
+                match Api::post("/api/auth/messenger/connect")
+                    .header("Content-Type", "application/json")
+                    .body(serde_json::to_string(&request_body).unwrap())
+                    .send()
+                    .await
                     {
                         Ok(response) => {
                             match response.json::<MessengerConnectionResponse>().await {
@@ -184,10 +168,9 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
                         Err(_) => {
                             is_connecting.set(false);
                             error.set(Some("Failed to start Messenger connection".to_string()));
-                        }
                     }
-                });
-            }
+                }
+            });
         })
     };
 
@@ -201,18 +184,11 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
             let error = error.clone();
             let is_disconnecting = is_disconnecting.clone();
             let show_disconnect_modal = show_disconnect_modal.clone();
-            if let Some(token) = window()
-                .and_then(|w| w.local_storage().ok())
-                .flatten()
-                .and_then(|storage| storage.get_item("token").ok())
-                .flatten()
-            {
-                is_disconnecting.set(true);
-                spawn_local(async move {
-                    match Request::delete(&format!("{}/api/auth/messenger/disconnect", config::get_backend_url()))
-                        .header("Authorization", &format!("Bearer {}", token))
-                        .send()
-                        .await
+            is_disconnecting.set(true);
+            spawn_local(async move {
+                match Api::delete("/api/auth/messenger/disconnect")
+                    .send()
+                    .await
                     {
                         Ok(_) => {
                             connection_status.set(Some(MessengerStatus {
@@ -226,12 +202,9 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
                             error.set(Some("Failed to disconnect Messenger".to_string()));
                         }
                     }
-                    is_disconnecting.set(false);
-                    show_disconnect_modal.set(false);
-                });
-            } else {
+                is_disconnecting.set(false);
                 show_disconnect_modal.set(false);
-            }
+            });
         })
     };
 
@@ -352,15 +325,8 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
                                             let fetch_status = fetch_status.clone();
                                             Callback::from(move |_| {
                                                 let fetch_status = fetch_status.clone();
-                                                if let Some(token) = window()
-                                                    .and_then(|w| w.local_storage().ok())
-                                                    .flatten()
-                                                    .and_then(|storage| storage.get_item("token").ok())
-                                                    .flatten()
-                                                {
-                                                    spawn_local(async move {
-                                                        match Request::post(&format!("{}/api/auth/messenger/resync", config::get_backend_url()))
-                                                            .header("Authorization", &format!("Bearer {}", token))
+                                                spawn_local(async move {
+                                                        match Api::post("/api/auth/messenger/resync")
                                                             .send()
                                                             .await
                                                         {
@@ -373,7 +339,6 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
                                                             }
                                                         }
                                                     });
-                                                }
                                             })
                                         }} class="resync-button">
                                             {"Resync Messenger"}
@@ -386,15 +351,8 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
                                     <>
                                         <button onclick={{
                                             Callback::from(move |_| {
-                                                if let Some(token) = window()
-                                                    .and_then(|w| w.local_storage().ok())
-                                                    .flatten()
-                                                    .and_then(|storage| storage.get_item("token").ok())
-                                                    .flatten()
-                                                {
-                                                    spawn_local(async move {
-                                                        match Request::get(&format!("{}/api/messenger/test-messages", config::get_backend_url()))
-                                                            .header("Authorization", &format!("Bearer {}", token))
+                                                spawn_local(async move {
+                                                        match Api::get("/api/messenger/test-messages")
                                                             .send()
                                                             .await
                                                         {
@@ -422,26 +380,18 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
                                                             }
                                                         }
                                                     });
-                                                }
                                             })
                                         }} class="test-button">
                                             {"Test Fetch Messages"}
                                         </button>
                                         <button onclick={{
                                             Callback::from(move |_| {
-                                                if let Some(token) = window()
-                                                    .and_then(|w| w.local_storage().ok())
-                                                    .flatten()
-                                                    .and_then(|storage| storage.get_item("token").ok())
-                                                    .flatten()
-                                                {
-                                                    spawn_local(async move {
+                                                spawn_local(async move {
                                                         let request_body = serde_json::json!({
                                                             "chat_name": "test",
                                                             "message": "testing"
                                                         });
-                                                        match Request::post(&format!("{}/api/messenger/send", config::get_backend_url()))
-                                                            .header("Authorization", &format!("Bearer {}", token))
+                                                        match Api::post("/api/messenger/send")
                                                             .header("Content-Type", "application/json")
                                                             .body(serde_json::to_string(&request_body).unwrap())
                                                             .send()
@@ -463,25 +413,17 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
                                                             }
                                                         }
                                                     });
-                                                }
                                             })
                                         }} class="test-button test-send-button">
                                             {"Test Send Message"}
                                         </button>
                                         <button onclick={{
                                             Callback::from(move |_| {
-                                                if let Some(token) = window()
-                                                    .and_then(|w| w.local_storage().ok())
-                                                    .flatten()
-                                                    .and_then(|storage| storage.get_item("token").ok())
-                                                    .flatten()
-                                                {
-                                                    spawn_local(async move {
+                                                spawn_local(async move {
                                                         let request_body = serde_json::json!({
                                                             "search_term": "test"
                                                         });
-                                                        match Request::post(&format!("{}/api/messenger/search-rooms", config::get_backend_url()))
-                                                            .header("Authorization", &format!("Bearer {}", token))
+                                                        match Api::post("/api/messenger/search-rooms")
                                                             .header("Content-Type", "application/json")
                                                             .body(serde_json::to_string(&request_body).unwrap())
                                                             .send()
@@ -503,7 +445,6 @@ pub fn messenger_connect(props: &MessengerProps) -> Html {
                                                             }
                                                         }
                                                     });
-                                                }
                                             })
                                         }} class="test-button test-search-button">
                                             {"Test Search Rooms"}
