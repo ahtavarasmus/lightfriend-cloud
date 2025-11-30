@@ -354,16 +354,17 @@ impl UserCore {
                     critical_enabled: Some("sms".to_string()),
                     proactive_agent_on: true,
                     notify_about_calls: true,
+                    notify_on_climate_ready: true,
                 };
-                
+
                 diesel::insert_into(user_settings::table)
                     .values(&new_settings)
                     .execute(&mut conn)?;
-                    
+
                 let created_settings = user_settings::table
                     .filter(user_settings::user_id.eq(user_id))
                     .first::<UserSettings>(&mut conn)?;
-                    
+
                 Ok(created_settings)
             }
         }
@@ -393,6 +394,7 @@ impl UserCore {
                 critical_enabled: Some("sms".to_string()),
                 proactive_agent_on: true,
                 notify_about_calls: true,
+                notify_on_climate_ready: true,
             };
             
             diesel::insert_into(user_settings::table)
@@ -760,12 +762,41 @@ impl UserCore {
     pub fn update_call_notify(&self, user_id: i32, call_notify: bool) -> Result<(), DieselError> {
         use crate::schema::user_settings;
         let mut conn = self.pool.get().expect("Failed to get DB connection");
-       
+
         // Ensure user settings exist
         self.ensure_user_settings_exist(user_id)?;
         // Update the call_notify setting
         diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
             .set(user_settings::notify_about_calls.eq(call_notify))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn get_notify_on_climate_ready(&self, user_id: i32) -> Result<bool, DieselError> {
+        use crate::schema::user_settings;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        // Ensure user settings exist
+        self.ensure_user_settings_exist(user_id)?;
+
+        // Get the setting
+        let notify_on_climate_ready = user_settings::table
+            .filter(user_settings::user_id.eq(user_id))
+            .select(user_settings::notify_on_climate_ready)
+            .first::<bool>(&mut conn)?;
+
+        Ok(notify_on_climate_ready)
+    }
+
+    pub fn update_notify_on_climate_ready(&self, user_id: i32, enabled: bool) -> Result<(), DieselError> {
+        use crate::schema::user_settings;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        // Ensure user settings exist
+        self.ensure_user_settings_exist(user_id)?;
+        // Update the notify_on_climate_ready setting
+        diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
+            .set(user_settings::notify_on_climate_ready.eq(enabled))
             .execute(&mut conn)?;
         Ok(())
     }

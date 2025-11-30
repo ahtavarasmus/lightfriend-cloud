@@ -463,6 +463,7 @@ pub struct UserSettings {
     pub magic_login_token_expiration_timestamp: Option<i32>, // self hosted instance magic token expiration timestamp
     pub monthly_message_count: i32, // for US/CA tier 3 monitoring (threshold at 1000 messages/month)
     pub outbound_message_pricing: Option<f32>, // cached Twilio outbound SMS price for user's country
+    pub notify_on_climate_ready: bool, // whether to send notification when Tesla climate reaches target temp
 }
 
 #[derive(Insertable)]
@@ -478,7 +479,8 @@ pub struct NewUserSettings {
     pub number_of_digests_locked: i32,
     pub critical_enabled: Option<String>,
     pub proactive_agent_on: bool,
-    pub notify_about_calls: bool, 
+    pub notify_about_calls: bool,
+    pub notify_on_climate_ready: bool,
 }
 
 

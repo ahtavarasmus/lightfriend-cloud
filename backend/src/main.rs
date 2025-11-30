@@ -386,6 +386,8 @@ async fn main() {
         .route("/api/tesla/vehicles", get(tesla_auth::tesla_list_vehicles))
         .route("/api/tesla/select-vehicle", post(tesla_auth::tesla_select_vehicle))
         .route("/api/tesla/mark-paired", post(tesla_auth::tesla_mark_paired))
+        .route("/api/tesla/notify-climate-ready", get(tesla_auth::get_notify_on_climate_ready))
+        .route("/api/tesla/notify-climate-ready", post(tesla_auth::update_notify_on_climate_ready))
         .route("/api/auth/imap/login", post(imap_auth::imap_login))
         .route("/api/auth/imap/status", get(imap_auth::imap_status))
         .route("/api/auth/imap/disconnect", delete(imap_auth::delete_imap_connection))

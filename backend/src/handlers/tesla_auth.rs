@@ -1109,3 +1109,49 @@ pub async fn tesla_mark_paired(
         }
     }
 }
+
+// Get notify on climate ready setting
+pub async fn get_notify_on_climate_ready(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    match state.user_core.get_notify_on_climate_ready(auth_user.user_id) {
+        Ok(enabled) => Ok(Json(json!({ "enabled": enabled }))),
+        Err(e) => {
+            error!("Failed to get notify_on_climate_ready: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to get setting"})),
+            ))
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct NotifyClimateReadyPayload {
+    pub enabled: bool,
+}
+
+// Update notify on climate ready setting
+pub async fn update_notify_on_climate_ready(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Json(payload): Json<NotifyClimateReadyPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    match state.user_core.update_notify_on_climate_ready(auth_user.user_id, payload.enabled) {
+        Ok(_) => {
+            info!("Updated notify_on_climate_ready for user {}: {}", auth_user.user_id, payload.enabled);
+            Ok(Json(json!({
+                "success": true,
+                "enabled": payload.enabled
+            })))
+        }
+        Err(e) => {
+            error!("Failed to update notify_on_climate_ready: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": "Failed to update setting"})),
+            ))
+        }
+    }
+}

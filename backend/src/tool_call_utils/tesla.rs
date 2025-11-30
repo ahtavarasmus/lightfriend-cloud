@@ -8,6 +8,153 @@ use crate::{
     AppState,
 };
 
+// Tool definition for switching between Tesla vehicles
+pub fn get_tesla_switch_vehicle_tool() -> openai_api_rs::v1::chat_completion::Tool {
+    use openai_api_rs::v1::{chat_completion, types};
+    use std::collections::HashMap;
+
+    let properties: HashMap<String, Box<types::JSONSchemaDefine>> = HashMap::new();
+
+    chat_completion::Tool {
+        r#type: chat_completion::ToolType::Function,
+        function: types::Function {
+            name: String::from("switch_selected_tesla_vehicle"),
+            description: Some(String::from(
+                "Switch to the next Tesla vehicle in the user's account. Cycles through available vehicles (after the last vehicle, goes back to the first). Use this when the user wants to control a different Tesla vehicle.",
+            )),
+            parameters: types::FunctionParameters {
+                schema_type: types::JSONSchemaType::Object,
+                properties: Some(properties),
+                required: None,
+            },
+        },
+    }
+}
+
+// Handle Tesla vehicle switch tool call
+pub async fn handle_tesla_switch_vehicle(
+    state: &Arc<AppState>,
+    user_id: i32,
+) -> String {
+    info!("Switching Tesla vehicle for user {}", user_id);
+
+    // Check if user has Tier 2 subscription
+    let user = match state.user_core.find_by_id(user_id) {
+        Ok(Some(u)) => u,
+        Ok(None) => return "Error: User not found".to_string(),
+        Err(e) => {
+            error!("Failed to get user: {}", e);
+            return "Error: Failed to verify user".to_string();
+        }
+    };
+
+    if user.sub_tier != Some("tier 2".to_string()) {
+        return "Tesla control requires a Tier 2 (Sentinel) subscription. Please upgrade your plan to use this feature.".to_string();
+    }
+
+    // Check if user has Tesla connected
+    let has_tesla = match state.user_repository.has_active_tesla(user_id) {
+        Ok(has) => has,
+        Err(e) => {
+            error!("Failed to check Tesla connection: {}", e);
+            return "Error: Failed to check Tesla connection".to_string();
+        }
+    };
+
+    if !has_tesla {
+        return "You haven't connected your Tesla account yet. Please connect it first in the app settings.".to_string();
+    }
+
+    // Get valid access token
+    let access_token = match get_valid_tesla_access_token(state, user_id).await {
+        Ok(token) => token,
+        Err((_, msg)) => {
+            error!("Failed to get Tesla access token: {}", msg);
+            return format!("Error: Failed to authenticate with Tesla - {}", msg);
+        }
+    };
+
+    // Get user's Tesla region
+    let region = match state.user_repository.get_tesla_region(user_id) {
+        Ok(r) => r,
+        Err(e) => {
+            error!("Failed to get user's Tesla region: {}", e);
+            return "Error: Failed to get your Tesla region settings".to_string();
+        }
+    };
+
+    // Create Tesla client with user's region and proxy support
+    let tesla_client = TeslaClient::new_with_proxy(&region);
+
+    // Get all vehicles
+    let vehicles = match tesla_client.get_vehicles(&access_token).await {
+        Ok(v) => v,
+        Err(e) => {
+            error!("Failed to get vehicles: {}", e);
+            return format!("Failed to get your vehicles: {}", e);
+        }
+    };
+
+    if vehicles.is_empty() {
+        return "No vehicles found on your Tesla account".to_string();
+    }
+
+    if vehicles.len() == 1 {
+        let name = vehicles[0].display_name.as_deref().unwrap_or("your Tesla");
+        return format!("You only have one Tesla vehicle: {}. No other vehicles to switch to.", name);
+    }
+
+    // Get currently selected vehicle VIN
+    let selected_vin = state.user_repository
+        .get_selected_vehicle_vin(user_id)
+        .ok()
+        .flatten();
+
+    // Find current vehicle's index
+    let current_index = if let Some(vin) = selected_vin.as_ref() {
+        vehicles.iter().position(|v| &v.vin == vin).unwrap_or(0)
+    } else {
+        0
+    };
+
+    // Select next vehicle (cycle back to first after last)
+    let next_index = (current_index + 1) % vehicles.len();
+    let next_vehicle = &vehicles[next_index];
+    let next_name = next_vehicle.display_name.as_deref().unwrap_or("Unknown");
+    let next_vin = &next_vehicle.vin;
+    let next_id = next_vehicle.id.to_string();
+
+    // Update selection in database
+    if let Err(e) = state.user_repository.set_selected_vehicle(
+        user_id,
+        next_vin.to_string(),
+        next_name.to_string(),
+        next_id.clone(),
+    ) {
+        error!("Failed to update selected vehicle: {}", e);
+        return "Error: Failed to save vehicle selection".to_string();
+    }
+
+    info!("Switched user {} to vehicle: {} (VIN: {})", user_id, next_name, next_vin);
+
+    // Build vehicle list string
+    let vehicle_list: Vec<String> = vehicles.iter().enumerate().map(|(i, v)| {
+        let name = v.display_name.as_deref().unwrap_or("Unknown");
+        if i == next_index {
+            format!("{} (selected)", name)
+        } else {
+            name.to_string()
+        }
+    }).collect();
+
+    format!(
+        "Switched to {}. You have {} vehicles: {}.",
+        next_name,
+        vehicles.len(),
+        vehicle_list.join(", ")
+    )
+}
+
 // Tool definition for OpenAI function calling
 pub fn get_tesla_control_tool() -> openai_api_rs::v1::chat_completion::Tool {
     use openai_api_rs::v1::{chat_completion, types};
@@ -374,37 +521,48 @@ fn spawn_climate_monitoring(
         let monitoring_result = tesla_client.monitor_climate_ready(&access_token, &vehicle_vin).await
             .map_err(|e| e.to_string());
 
+        // Check if user wants notifications at time of sending
+        let should_notify = state_clone.user_core.get_notify_on_climate_ready(user_id).unwrap_or(true);
+
         match monitoring_result {
             Ok(Some(temp)) => {
-                let msg = format!("Your {} is ready to drive! Cabin temp is {:.1}°C.", vehicle_name, temp);
-                crate::proactive::utils::send_notification(
-                    &state_clone,
-                    user_id,
-                    &msg,
-                    "tesla_ready_to_drive".to_string(),
-                    Some(format!("Your {} is warmed up and ready to drive!", vehicle_name)),
-                ).await;
+                if should_notify {
+                    let msg = format!("Your {} is ready to drive! Cabin temp is {:.1}°C.", &vehicle_name, temp);
+                    crate::proactive::utils::send_notification(
+                        &state_clone,
+                        user_id,
+                        &msg,
+                        "tesla_ready_to_drive".to_string(),
+                        Some(format!("Your {} is warmed up and ready to drive!", &vehicle_name)),
+                    ).await;
+                } else {
+                    info!("User {} has climate notifications disabled, skipping ready notification", user_id);
+                }
             }
             Ok(None) => {
-                let msg = format!("Your {} should be ready by now (climate running 20+ min). Please check if needed.", vehicle_name);
-                crate::proactive::utils::send_notification(
-                    &state_clone,
-                    user_id,
-                    &msg,
-                    "tesla_ready_timeout".to_string(),
-                    Some("Your Tesla should be warmed up by now.".to_string()),
-                ).await;
+                if should_notify {
+                    let msg = format!("Your {} should be ready by now (climate running 20+ min). Please check if needed.", &vehicle_name);
+                    crate::proactive::utils::send_notification(
+                        &state_clone,
+                        user_id,
+                        &msg,
+                        "tesla_ready_timeout".to_string(),
+                        Some(format!("Your {} should be warmed up by now.", &vehicle_name)),
+                    ).await;
+                } else {
+                    info!("User {} has climate notifications disabled, skipping timeout notification", user_id);
+                }
             }
             Err(error_msg) => {
                 let is_stopped = error_msg.contains("turned off");
                 error!("Climate monitoring error for user {}: {}", user_id, error_msg);
-                if is_stopped {
+                if is_stopped && should_notify {
                     crate::proactive::utils::send_notification(
                         &state_clone,
                         user_id,
                         "Tesla climate was turned off before reaching target temperature.",
                         "tesla_climate_stopped".to_string(),
-                        Some("Your Tesla climate was stopped early.".to_string()),
+                        Some(format!("Your {} climate was stopped early.", &vehicle_name)),
                     ).await;
                 }
             }
@@ -439,37 +597,48 @@ fn spawn_climate_monitoring_internal(
         let monitoring_result = tesla_client.monitor_climate_ready(&access_token, &vehicle_vin).await
             .map_err(|e| e.to_string());
 
+        // Check if user wants notifications at time of sending
+        let should_notify = state_clone.user_core.get_notify_on_climate_ready(user_id).unwrap_or(true);
+
         match monitoring_result {
             Ok(Some(temp)) => {
-                let msg = format!("Your {} is ready to drive! Cabin temp is {:.1}°C.", vehicle_name, temp);
-                crate::proactive::utils::send_notification(
-                    &state_clone,
-                    user_id,
-                    &msg,
-                    "tesla_ready_to_drive".to_string(),
-                    Some(format!("Your {} is warmed up and ready to drive!", vehicle_name)),
-                ).await;
+                if should_notify {
+                    let msg = format!("Your {} is ready to drive! Cabin temp is {:.1}°C.", &vehicle_name, temp);
+                    crate::proactive::utils::send_notification(
+                        &state_clone,
+                        user_id,
+                        &msg,
+                        "tesla_ready_to_drive".to_string(),
+                        Some(format!("Your {} is warmed up and ready to drive!", &vehicle_name)),
+                    ).await;
+                } else {
+                    info!("User {} has climate notifications disabled, skipping ready notification", user_id);
+                }
             }
             Ok(None) => {
-                let msg = format!("Your {} should be ready by now (climate running 20+ min). Please check if needed.", vehicle_name);
-                crate::proactive::utils::send_notification(
-                    &state_clone,
-                    user_id,
-                    &msg,
-                    "tesla_ready_timeout".to_string(),
-                    Some("Your Tesla should be warmed up by now.".to_string()),
-                ).await;
+                if should_notify {
+                    let msg = format!("Your {} should be ready by now (climate running 20+ min). Please check if needed.", &vehicle_name);
+                    crate::proactive::utils::send_notification(
+                        &state_clone,
+                        user_id,
+                        &msg,
+                        "tesla_ready_timeout".to_string(),
+                        Some(format!("Your {} should be warmed up by now.", &vehicle_name)),
+                    ).await;
+                } else {
+                    info!("User {} has climate notifications disabled, skipping timeout notification", user_id);
+                }
             }
             Err(error_msg) => {
                 let is_stopped = error_msg.contains("turned off");
                 error!("Climate monitoring error for user {}: {}", user_id, error_msg);
-                if is_stopped {
+                if is_stopped && should_notify {
                     crate::proactive::utils::send_notification(
                         &state_clone,
                         user_id,
                         "Tesla climate was turned off before reaching target temperature.",
                         "tesla_climate_stopped".to_string(),
-                        Some("Your Tesla climate was stopped early.".to_string()),
+                        Some(format!("Your {} climate was stopped early.", &vehicle_name)),
                     ).await;
                 }
             }

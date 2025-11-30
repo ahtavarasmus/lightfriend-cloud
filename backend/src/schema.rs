@@ -282,6 +282,7 @@ diesel::table! {
         magic_login_token_expiration_timestamp -> Nullable<Integer>,
         monthly_message_count -> Integer,
         outbound_message_pricing -> Nullable<Float>,
+        notify_on_climate_ready -> Bool,
     }
 }
 

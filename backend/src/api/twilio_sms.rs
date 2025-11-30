@@ -674,6 +674,7 @@ Never use markdown, HTML, or any special formatting characters in responses. Ret
         crate::tool_call_utils::internet::get_weather_tool(),
         crate::tool_call_utils::internet::get_directions_tool(),
         crate::tool_call_utils::tesla::get_tesla_control_tool(),
+        crate::tool_call_utils::tesla::get_tesla_switch_vehicle_tool(),
     ];
 
     let client = match create_openai_client(&state) {
@@ -1347,6 +1348,13 @@ Never use markdown, HTML, or any special formatting characters in responses. Ret
                         &state,
                         user.id,
                         arguments,
+                    ).await;
+                    tool_answers.insert(tool_call_id, response);
+                } else if name == "switch_selected_tesla_vehicle" {
+                    tracing::debug!("Executing switch_selected_tesla_vehicle tool call");
+                    let response = crate::tool_call_utils::tesla::handle_tesla_switch_vehicle(
+                        &state,
+                        user.id,
                     ).await;
                     tool_answers.insert(tool_call_id, response);
                 }
