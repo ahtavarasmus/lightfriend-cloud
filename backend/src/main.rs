@@ -1,6 +1,6 @@
 use dotenvy::dotenv;
 use axum::{
-    routing::{get, post, delete},
+    routing::{get, post, delete, patch},
     Router,
     middleware
 };
@@ -24,6 +24,8 @@ use oauth2::{
 use tower_http::cors::{CorsLayer, AllowOrigin};
 use tower_http::services::ServeDir;
 use tower_http::trace::{TraceLayer, DefaultMakeSpan, DefaultOnResponse};
+use tower_http::set_header::SetResponseHeaderLayer;
+use axum::http::HeaderValue;
 use tracing::Level;
 use std::sync::Arc;
 use sentry;
@@ -58,6 +60,7 @@ mod handlers {
     pub mod uber;
     pub mod tesla_auth;
     pub mod google_maps;
+    pub mod totp_handlers;
 }
 mod utils {
     pub mod encryption;
@@ -102,6 +105,7 @@ mod repositories {
     pub mod user_repository;
     pub mod user_subscriptions;
     pub mod connection_auth;
+    pub mod totp_repository;
 }
 mod schema;
 mod jobs {
@@ -109,6 +113,7 @@ mod jobs {
 }
 use repositories::user_core::UserCore;
 use repositories::user_repository::UserRepository;
+use repositories::totp_repository::TotpRepository;
 use handlers::{
     auth_handlers, self_host_handlers, profile_handlers, billing_handlers,
     admin_handlers, stripe_handlers, google_calendar_auth, google_calendar,
@@ -145,6 +150,8 @@ pub struct AppState {
     phone_verify_verify_limiter: DashMap<String, RateLimiter<String, DefaultKeyedStateStore<String>, DefaultClock>>,
     phone_verify_otps: DashMap<String, (String, u64)>,
     pending_message_senders: Arc<Mutex<HashMap<i32, oneshot::Sender<()>>>>,
+    totp_repository: Arc<TotpRepository>,
+    pending_totp_logins: DashMap<String, (i32, i64)>, // (totp_token, (user_id, expiry_timestamp))
 }
 pub fn validate_env() {
     let required_vars = [
@@ -199,6 +206,7 @@ async fn main() {
         .expect("Failed to create pool");
     let user_core= Arc::new(UserCore::new(pool.clone()));
     let user_repository = Arc::new(UserRepository::new(pool.clone()));
+    let totp_repository = Arc::new(TotpRepository::new(pool.clone()));
     let server_url_oauth = std::env::var("SERVER_URL_OAUTH").unwrap_or_else(|_| "http://localhost:3000".to_string());
     let server_url = std::env::var("SERVER_URL").unwrap_or_else(|_| "http://localhost:3000".to_string());
     let client_id = std::env::var("GOOGLE_CALENDAR_CLIENT_ID").unwrap_or_else(|_| "default-client-id-for-testing".to_string());
@@ -259,6 +267,8 @@ async fn main() {
         phone_verify_verify_limiter: DashMap::new(),
         password_reset_otps: DashMap::new(),
         pending_message_senders: Arc::new(Mutex::new(HashMap::new())),
+        totp_repository,
+        pending_totp_logins: DashMap::new(),
     });
     let twilio_routes = Router::new()
         .route("/api/sms/server", post(twilio_sms::handle_regular_sms))
@@ -317,7 +327,8 @@ async fn main() {
         .route("/api/phone-verify/request", post(auth_handlers::request_phone_verify))
         .route("/api/phone-verify/verify", post(auth_handlers::verify_phone_verify))
         .route("/api/country-info", post(twilio_handlers::get_country_info))
-        .route("/api/tier3/check-availability", get(self_host_handlers::check_tier3_availability));
+        .route("/api/tier3/check-availability", get(self_host_handlers::check_tier3_availability))
+        .route("/api/totp/verify", post(handlers::totp_handlers::verify_login));
     // Admin routes that need admin authentication
     let admin_routes = Router::new()
         .route("/testing", post(auth_handlers::testing_handler))
@@ -337,8 +348,15 @@ async fn main() {
     // Protected routes that need user authentication
     let protected_routes = Router::new()
         .route("/api/auth/status", get(auth_handlers::auth_status))
+        // TOTP 2FA routes
+        .route("/api/totp/setup/start", post(handlers::totp_handlers::setup_start))
+        .route("/api/totp/setup/verify", post(handlers::totp_handlers::setup_verify))
+        .route("/api/totp/disable", post(handlers::totp_handlers::disable))
+        .route("/api/totp/status", get(handlers::totp_handlers::get_status))
+        .route("/api/totp/backup-codes/regenerate", post(handlers::totp_handlers::regenerate_backup_codes))
         .route("/api/profile/delete/{user_id}", delete(profile_handlers::delete_user))
         .route("/api/profile/update", post(profile_handlers::update_profile))
+        .route("/api/profile/field", patch(profile_handlers::patch_profile_field))
         .route("/api/profile/server-ip", post(self_host_handlers::update_server_ip))
         .route("/api/profile/magic-link", get(self_host_handlers::get_magic_link))
         .route("/api/profile/twilio-phone", post(self_host_handlers::update_twilio_phone))
@@ -479,7 +497,7 @@ async fn main() {
         )
         .layer(
             CorsLayer::new()
-                .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::OPTIONS, axum::http::Method::DELETE])
+                .allow_methods([axum::http::Method::GET, axum::http::Method::POST, axum::http::Method::OPTIONS, axum::http::Method::DELETE, axum::http::Method::PATCH, axum::http::Method::PUT])
                 .allow_origin(AllowOrigin::exact(std::env::var("FRONTEND_URL").unwrap_or_else(|_| "http://localhost:8080".to_string()).parse().expect("Invalid FRONTEND_URL"))) // Restrict in production
                 .allow_headers([
                     axum::http::header::CONTENT_TYPE,
@@ -493,6 +511,23 @@ async fn main() {
                 ])
                 .allow_credentials(true)
         )
+        // Security headers to prevent clickjacking, XSS, and other attacks
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::REFERRER_POLICY,
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::header::X_XSS_PROTECTION,
+            HeaderValue::from_static("1; mode=block"),
+        ))
         .with_state(state.clone());
     let state_for_scheduler = state.clone();
     tokio::spawn(async move {

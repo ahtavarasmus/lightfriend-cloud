@@ -362,6 +362,186 @@ pub async fn update_timezone(
     }
 }
 
+#[derive(Deserialize)]
+pub struct PatchFieldRequest {
+    field: String,
+    value: serde_json::Value,
+}
+
+/// Generic endpoint to update individual profile fields
+/// Allows inline editing on the frontend without bulk updates
+pub async fn patch_profile_field(
+    State(state): State<Arc<AppState>>,
+    auth_user: AuthUser,
+    Json(request): Json<PatchFieldRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let user_id = auth_user.user_id;
+
+    match request.field.as_str() {
+        "nickname" => {
+            let value = request.value.as_str().ok_or_else(|| (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "nickname must be a string"}))
+            ))?;
+            if value.len() > 30 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Nickname must be 30 characters or less"}))
+                ));
+            }
+            state.user_core.update_nickname(user_id, value).map_err(|e| (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)}))
+            ))?;
+        }
+        "info" => {
+            let value = request.value.as_str().ok_or_else(|| (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "info must be a string"}))
+            ))?;
+            if value.len() > 500 {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Info must be 500 characters or less"}))
+                ));
+            }
+            state.user_core.update_info(user_id, value).map_err(|e| (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)}))
+            ))?;
+        }
+        "location" => {
+            let value = request.value.as_str().ok_or_else(|| (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "location must be a string"}))
+            ))?;
+            state.user_core.update_location(user_id, value).map_err(|e| (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)}))
+            ))?;
+        }
+        "nearby_places" => {
+            let value = request.value.as_str().ok_or_else(|| (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "nearby_places must be a string"}))
+            ))?;
+            state.user_core.update_nearby_places(user_id, value).map_err(|e| (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)}))
+            ))?;
+        }
+        "timezone" => {
+            let value = request.value.as_str().ok_or_else(|| (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "timezone must be a string"}))
+            ))?;
+            // Validate timezone
+            if value.parse::<chrono_tz::Tz>().is_err() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid timezone"}))
+                ));
+            }
+            state.user_core.update_timezone(user_id, value).map_err(|e| (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)}))
+            ))?;
+        }
+        "timezone_auto" => {
+            let value = request.value.as_bool().ok_or_else(|| (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "timezone_auto must be a boolean"}))
+            ))?;
+            state.user_core.update_timezone_auto(user_id, value).map_err(|e| (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)}))
+            ))?;
+        }
+        "agent_language" => {
+            let value = request.value.as_str().ok_or_else(|| (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "agent_language must be a string"}))
+            ))?;
+            let allowed_languages = vec!["en", "fi", "de"];
+            if !allowed_languages.contains(&value) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid agent language. Must be 'en', 'fi', or 'de'"}))
+                ));
+            }
+            state.user_core.update_agent_language(user_id, value).map_err(|e| (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)}))
+            ))?;
+        }
+        "notification_type" => {
+            let value = request.value.as_str().ok_or_else(|| (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "notification_type must be a string"}))
+            ))?;
+            let allowed_types = vec!["sms", "call"];
+            if !allowed_types.contains(&value) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "Invalid notification type. Must be 'sms' or 'call'"}))
+                ));
+            }
+            state.user_core.update_notification_type(user_id, Some(value)).map_err(|e| (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)}))
+            ))?;
+        }
+        "save_context" => {
+            let value = request.value.as_i64().ok_or_else(|| (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": "save_context must be an integer"}))
+            ))? as i32;
+            if !(0..=10).contains(&value) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "save_context must be between 0 and 10"}))
+                ));
+            }
+            state.user_core.update_save_context(user_id, value).map_err(|e| (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({"error": format!("Database error: {}", e)}))
+            ))?;
+        }
+        "preferred_number" => {
+            let value = if request.value.is_null() {
+                None
+            } else {
+                Some(request.value.as_str().ok_or_else(|| (
+                    StatusCode::BAD_REQUEST,
+                    Json(json!({"error": "preferred_number must be a string or null"}))
+                ))?)
+            };
+            match value {
+                Some(v) if !v.is_empty() => {
+                    state.user_core.update_preferred_number(user_id, v).map_err(|e| (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Database error: {}", e)}))
+                    ))?;
+                }
+                _ => {
+                    state.user_core.clear_preferred_number(user_id).map_err(|e| (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(json!({"error": format!("Database error: {}", e)}))
+                    ))?;
+                }
+            }
+        }
+        _ => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(json!({"error": format!("Unknown field: {}", request.field)}))
+            ));
+        }
+    }
+
+    Ok(Json(json!({"success": true})))
+}
+
 pub async fn set_user_phone_country(state: &Arc<AppState>, user_id: i32, phone_number: &str) -> Result<Option<String>, Box<dyn std::error::Error>> {
     let ca_area_codes: Vec<String> = vec![
         "+1204".to_string(),

@@ -16,6 +16,7 @@ mod profile {
     pub mod profile;
     pub mod settings;
     pub mod timezone_detector;
+    pub mod security;
 }
 mod blog {
     pub mod switch_to_dumbphone;

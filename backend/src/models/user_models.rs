@@ -19,6 +19,8 @@ use crate::schema::user_info;
 use crate::schema::uber;
 use crate::schema::subaccounts;
 use crate::schema::country_availability;
+use crate::schema::totp_secrets;
+use crate::schema::totp_backup_codes;
 
 
 
@@ -606,4 +608,43 @@ pub struct NewTesla {
     pub created_on: i32,
     pub expires_in: i32,
     pub region: String,
+}
+
+// TOTP 2FA models
+#[derive(Queryable, Selectable, Clone, Debug)]
+#[diesel(table_name = totp_secrets)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct TotpSecret {
+    pub id: Option<i32>,
+    pub user_id: i32,
+    pub encrypted_secret: String,
+    pub enabled: i32,  // 0 = disabled, 1 = enabled
+    pub created_at: i32,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = totp_secrets)]
+pub struct NewTotpSecret {
+    pub user_id: i32,
+    pub encrypted_secret: String,
+    pub enabled: i32,
+    pub created_at: i32,
+}
+
+#[derive(Queryable, Selectable, Clone, Debug)]
+#[diesel(table_name = totp_backup_codes)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct TotpBackupCode {
+    pub id: Option<i32>,
+    pub user_id: i32,
+    pub code_hash: String,
+    pub used: i32,  // 0 = unused, 1 = used
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = totp_backup_codes)]
+pub struct NewTotpBackupCode {
+    pub user_id: i32,
+    pub code_hash: String,
+    pub used: i32,
 }

@@ -30,6 +30,8 @@ pub struct MonitoredContactsProps {
     pub contacts: Vec<MonitoredContact>,
     pub on_change: Callback<Vec<MonitoredContact>>,
     pub phone_number: String,
+    #[prop_or(false)]
+    pub critical_disabled: bool,
 }
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct PrioritySender {
@@ -658,12 +660,27 @@ pub fn monitored_contacts_section(props: &MonitoredContactsProps) -> Html {
                     .tab-button:hover {
                         opacity: 0.9;
                     }
+                    .section-disabled {
+                        opacity: 0.5;
+                    }
+                    .disabled-hint {
+                        font-size: 0.75rem;
+                        color: #666;
+                        font-style: italic;
+                        margin-left: 0.5rem;
+                    }
                 "#}
             </style>
+            <div class={classes!(if props.critical_disabled { "section-disabled" } else { "" })}>
             <div class="filter-header">
                 <div class="filter-title">
                     <i class="fas fa-user-check" style="color: #4ECDC4;"></i>
                     <h3>{"Special Contacts"}</h3>
+                    {if props.critical_disabled {
+                        html! { <span class="disabled-hint">{"(not active)"}</span> }
+                    } else {
+                        html! {}
+                    }}
                     <button
                         class="info-button"
                         onclick={Callback::from({
@@ -988,6 +1005,7 @@ pub fn monitored_contacts_section(props: &MonitoredContactsProps) -> Html {
                 }).collect::<Html>()
             }
             </ul>
+            </div>
         </>
     }
 }

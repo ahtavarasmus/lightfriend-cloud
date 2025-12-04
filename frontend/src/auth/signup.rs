@@ -17,6 +17,17 @@ pub mod login {
         token: String,
     }
     #[derive(Deserialize)]
+    struct TotpRequiredResponse {
+        requires_totp: bool,
+        totp_token: String,
+    }
+    #[derive(Serialize)]
+    struct TotpVerifyRequest {
+        totp_token: String,
+        code: String,
+        is_backup_code: bool,
+    }
+    #[derive(Deserialize)]
     struct ErrorResponse {
         error: String,
     }
@@ -26,18 +37,28 @@ pub mod login {
         let password = use_state(String::new);
         let error = use_state(|| None::<String>);
         let success = use_state(|| None::<String>);
+        // TOTP states
+        let totp_required = use_state(|| false);
+        let totp_token = use_state(String::new);
+        let totp_code = use_state(String::new);
+        let use_backup_code = use_state(|| false);
+        let is_verifying = use_state(|| false);
         let onsubmit = {
             let email = email.clone();
             let password = password.clone();
             let error_setter = error.clone();
             let success_setter = success.clone();
-           
+            let totp_required = totp_required.clone();
+            let totp_token = totp_token.clone();
+
             Callback::from(move |e: SubmitEvent| {
                 e.prevent_default();
                 let email = (*email).clone();
                 let password = (*password).clone();
                 let error_setter = error_setter.clone();
                 let success_setter = success_setter.clone();
+                let totp_required = totp_required.clone();
+                let totp_token = totp_token.clone();
                 wasm_bindgen_futures::spawn_local(async move {
                     println!("Attempting login for email: {}", &email);
                     match Request::post(&format!("{}/api/login", config::get_backend_url()))
@@ -49,6 +70,19 @@ pub mod login {
                     {
                         Ok(response) => {
                             if response.ok() {
+                                // Check if TOTP is required
+                                if let Ok(text) = response.text().await {
+                                    if text.contains("requires_totp") {
+                                        if let Ok(totp_resp) = serde_json::from_str::<TotpRequiredResponse>(&text) {
+                                            if totp_resp.requires_totp {
+                                                totp_required.set(true);
+                                                totp_token.set(totp_resp.totp_token);
+                                                return;
+                                            }
+                                        }
+                                    }
+                                }
+
                                 log!("Login request successful, cookies set by backend");
                                 error_setter.set(None);
                                 success_setter.set(Some("Login successful! Redirecting...".to_string()));
@@ -79,6 +113,96 @@ pub mod login {
                         }
                     }
                 });
+            })
+        };
+        // TOTP verification handler
+        let on_totp_verify = {
+            let totp_token = totp_token.clone();
+            let totp_code = totp_code.clone();
+            let use_backup_code = use_backup_code.clone();
+            let error_setter = error.clone();
+            let success_setter = success.clone();
+            let is_verifying = is_verifying.clone();
+
+            Callback::from(move |e: SubmitEvent| {
+                e.prevent_default();
+                let token = (*totp_token).clone();
+                let code = (*totp_code).clone();
+                let is_backup = *use_backup_code;
+                let error_setter = error_setter.clone();
+                let success_setter = success_setter.clone();
+                let is_verifying = is_verifying.clone();
+
+                if code.is_empty() {
+                    error_setter.set(Some("Please enter a code".to_string()));
+                    return;
+                }
+
+                is_verifying.set(true);
+                wasm_bindgen_futures::spawn_local(async move {
+                    match Request::post(&format!("{}/api/totp/verify", config::get_backend_url()))
+                        .credentials(web_sys::RequestCredentials::Include)
+                        .json(&TotpVerifyRequest {
+                            totp_token: token,
+                            code,
+                            is_backup_code: is_backup
+                        })
+                        .unwrap()
+                        .send()
+                        .await
+                    {
+                        Ok(response) => {
+                            if response.ok() {
+                                log!("TOTP verification successful");
+                                error_setter.set(None);
+                                success_setter.set(Some("Login successful! Redirecting...".to_string()));
+
+                                let window = web_sys::window().unwrap();
+                                wasm_bindgen_futures::spawn_local(async move {
+                                    gloo_timers::future::TimeoutFuture::new(2_000).await;
+                                    let _ = window.location().set_href("/");
+                                });
+                            } else {
+                                match response.json::<ErrorResponse>().await {
+                                    Ok(error_response) => {
+                                        error_setter.set(Some(error_response.error));
+                                    }
+                                    Err(_) => {
+                                        error_setter.set(Some("Invalid code".to_string()));
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error_setter.set(Some(format!("Request failed: {}", e)));
+                        }
+                    }
+                    is_verifying.set(false);
+                });
+            })
+        };
+        // Toggle backup code mode
+        let on_toggle_backup = {
+            let use_backup_code = use_backup_code.clone();
+            let totp_code = totp_code.clone();
+            Callback::from(move |_: MouseEvent| {
+                use_backup_code.set(!*use_backup_code);
+                totp_code.set(String::new());
+            })
+        };
+        // Cancel TOTP and go back to login
+        let on_cancel_totp = {
+            let totp_required = totp_required.clone();
+            let totp_token = totp_token.clone();
+            let totp_code = totp_code.clone();
+            let use_backup_code = use_backup_code.clone();
+            let error_setter = error.clone();
+            Callback::from(move |_: MouseEvent| {
+                totp_required.set(false);
+                totp_token.set(String::new());
+                totp_code.set(String::new());
+                use_backup_code.set(false);
+                error_setter.set(None);
             })
         };
         html! {
@@ -211,7 +335,7 @@ pub mod login {
             </style>
             <div class="hero-background"></div>
             <div class="login-container">
-                <h1>{"Login"}</h1>
+                <h1>{if *totp_required { "Two-Factor Authentication" } else { "Login" }}</h1>
                 {
                     if let Some(error_message) = (*error).as_ref() {
                         html! {
@@ -229,36 +353,87 @@ pub mod login {
                         html! {}
                     }
                 }
-                <form onsubmit={onsubmit}>
-                    <input
-                        type="text"
-                        placeholder="Email or username"
-                        onchange={let email = email.clone(); move |e: Event| {
-                            let input: HtmlInputElement = e.target_unchecked_into();
-                            email.set(input.value());
-                        }}
-                    />
-                    <input
-                        type="password"
-                        placeholder="Password"
-                        onchange={let password = password.clone(); move |e: Event| {
-                            let input: HtmlInputElement = e.target_unchecked_into();
-                            password.set(input.value());
-                        }}
-                    />
-                    <button type="submit">{"Login"}</button>
-                </form>
-                <div class="auth-redirect">
-                    {"Don't have an account? "}
-                    <Link<Route> to={Route::Register}>
-                        {"Register here"}
-                    </Link<Route>>
-                </div>
-                <div class="auth-redirect">
-                    <Link<Route> to={Route::PasswordReset}>
-                        {"Forgot password?"}
-                    </Link<Route>>
-                </div>
+                {
+                    if *totp_required {
+                        html! {
+                            <>
+                                <p style="color: rgba(255, 255, 255, 0.8); margin-bottom: 20px; text-align: center;">
+                                    {if *use_backup_code {
+                                        "Enter one of your backup codes"
+                                    } else {
+                                        "Enter the 6-digit code from your authenticator app"
+                                    }}
+                                </p>
+                                <form onsubmit={on_totp_verify}>
+                                    <input
+                                        type="text"
+                                        placeholder={if *use_backup_code { "Backup code" } else { "000000" }}
+                                        maxlength={if *use_backup_code { "10" } else { "6" }}
+                                        value={(*totp_code).clone()}
+                                        style="text-align: center; font-size: 1.5rem; letter-spacing: 0.5rem;"
+                                        oninput={let totp_code = totp_code.clone(); let use_backup = *use_backup_code; move |e: InputEvent| {
+                                            let input: HtmlInputElement = e.target_unchecked_into();
+                                            let value = if use_backup {
+                                                input.value()
+                                            } else {
+                                                input.value().chars().filter(|c| c.is_numeric()).collect::<String>()
+                                            };
+                                            totp_code.set(value);
+                                        }}
+                                    />
+                                    <button type="submit" disabled={*is_verifying}>
+                                        {if *is_verifying { "Verifying..." } else { "Verify" }}
+                                    </button>
+                                </form>
+                                <div class="auth-redirect">
+                                    <a href="#" onclick={on_toggle_backup} style="color: #1E90FF; text-decoration: none;">
+                                        {if *use_backup_code { "Use authenticator code instead" } else { "Use backup code instead" }}
+                                    </a>
+                                </div>
+                                <div class="auth-redirect">
+                                    <a href="#" onclick={on_cancel_totp} style="color: rgba(255, 255, 255, 0.6); text-decoration: none;">
+                                        {"Back to login"}
+                                    </a>
+                                </div>
+                            </>
+                        }
+                    } else {
+                        html! {
+                            <>
+                                <form onsubmit={onsubmit}>
+                                    <input
+                                        type="text"
+                                        placeholder="Email or username"
+                                        onchange={let email = email.clone(); move |e: Event| {
+                                            let input: HtmlInputElement = e.target_unchecked_into();
+                                            email.set(input.value());
+                                        }}
+                                    />
+                                    <input
+                                        type="password"
+                                        placeholder="Password"
+                                        onchange={let password = password.clone(); move |e: Event| {
+                                            let input: HtmlInputElement = e.target_unchecked_into();
+                                            password.set(input.value());
+                                        }}
+                                    />
+                                    <button type="submit">{"Login"}</button>
+                                </form>
+                                <div class="auth-redirect">
+                                    {"Don't have an account? "}
+                                    <Link<Route> to={Route::Register}>
+                                        {"Register here"}
+                                    </Link<Route>>
+                                </div>
+                                <div class="auth-redirect">
+                                    <Link<Route> to={Route::PasswordReset}>
+                                        {"Forgot password?"}
+                                    </Link<Route>>
+                                </div>
+                            </>
+                        }
+                    }
+                }
             </div>
         </div>
         }

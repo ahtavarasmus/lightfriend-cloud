@@ -492,8 +492,13 @@ pub async fn fetch_bridge_messages(
     if bridge.map(|b| b.status != "connected").unwrap_or(true) {
         return Err(anyhow!("{} bridge is not connected. Please log in first.", capitalize(&service)));
     }
+    // Get last_seen_online from the bridge for additional filtering when unread_only
+    let bridge_last_seen = state.user_repository.get_bridge(user_id, service)?
+        .and_then(|b| b.last_seen_online)
+        .unwrap_or(0) as i64;
+
     let service_rooms = get_service_rooms(&client, service).await?;
-    let mut room_infos: Vec<(Room, BridgeRoom)> = Vec::new();
+    let mut room_infos: Vec<(Room, BridgeRoom, i64)> = Vec::new(); // (room, bridge_room, seen_until)
     for bridge_room in service_rooms {
         let room_id = match matrix_sdk::ruma::OwnedRoomId::try_from(bridge_room.room_id.as_str()) {
             Ok(id) => id,
@@ -503,10 +508,19 @@ pub async fn fetch_bridge_messages(
         if room.user_defined_notification_mode().await == Some(RoomNotificationMode::Mute) {
             continue;
         }
-        if unread_only && room.unread_notification_counts().notification_count == 0 {
-            continue;
-        }
-        room_infos.push((room, bridge_room));
+
+        // Calculate seen_until: the timestamp up to which messages should be filtered out
+        let seen_until = if unread_only {
+            // Get the room's seen timestamp from read receipts and user replies
+            let room_seen = get_room_seen_timestamp(&room, &client).await.unwrap_or(0);
+            // Use the max of: start_time, room_seen, bridge_last_seen
+            start_time.max(room_seen).max(bridge_last_seen)
+        } else {
+            // For live fetching, just use start_time (no filtering by seen status)
+            start_time
+        };
+
+        room_infos.push((room, bridge_room, seen_until));
     }
     // Already sorted by last_activity desc from get_service_rooms
     room_infos.truncate(5);
@@ -514,7 +528,7 @@ pub async fn fetch_bridge_messages(
     let user_timezone = user_info.timezone.clone();
     let sender_prefix = get_sender_prefix(service);
     let mut futures = Vec::new();
-    for (room, bridge_room) in room_infos {
+    for (room, bridge_room, seen_until) in room_infos {
         let sender_prefix = sender_prefix.clone();
         let user_timezone = user_timezone.clone();
         let room_name = remove_bridge_suffix(&bridge_room.display_name);
@@ -540,8 +554,8 @@ pub async fn fetch_bridge_messages(
                                     }
                                     _ => continue,
                                 };
-                                // Skip messages outside time range
-                                if timestamp < start_time {
+                                // Skip messages that user has already seen (or outside time range)
+                                if timestamp <= seen_until {
                                     continue;
                                 }
                                 if !sender.localpart().starts_with(&sender_prefix) {
@@ -779,6 +793,48 @@ async fn fetch_messages_from_room(
 }
 
 use std::time::{SystemTime, UNIX_EPOCH};
+
+/// Returns the timestamp (in seconds) up to which the user has "seen" messages in this room.
+/// This checks read receipts and user replies to determine what the user has already seen.
+/// Returns None if no seen status can be determined.
+pub async fn get_room_seen_timestamp(
+    room: &Room,
+    client: &MatrixClient,
+) -> Option<i64> {
+    use matrix_sdk::ruma::{events::receipt::{ReceiptType, ReceiptThread}, api::client::room::get_room_event};
+
+    let own_user_id = client.user_id()?;
+    let mut seen_until: Option<i64> = None;
+
+    // Check read receipt - if user has read messages up to a certain point
+    if let Ok(Some((receipt_event_id, _))) = room.load_user_receipt(ReceiptType::Read, ReceiptThread::Unthreaded, own_user_id).await {
+        let request = get_room_event::v3::Request::new(room.room_id().to_owned(), receipt_event_id.clone());
+        if let Ok(response) = client.send(request).await {
+            if let Ok(any_event) = response.event.deserialize_as::<AnySyncTimelineEvent>() {
+                let receipt_ts = i64::try_from(any_event.origin_server_ts().as_secs()).unwrap_or(0);
+                seen_until = Some(seen_until.unwrap_or(0).max(receipt_ts));
+            }
+        }
+    }
+
+    // Check for user replies - if user replied, they've seen messages before that
+    let messages = room.messages(MessagesOptions::backward()).await;
+    if let Ok(messages) = messages {
+        for message_event in messages.chunk {
+            if let Ok(timeline_event) = message_event.raw().deserialize() {
+                if let AnySyncTimelineEvent::MessageLike(msg_event) = timeline_event {
+                    if msg_event.sender() == own_user_id {
+                        let reply_ts = i64::try_from(msg_event.origin_server_ts().as_secs()).unwrap_or(0);
+                        seen_until = Some(seen_until.unwrap_or(0).max(reply_ts));
+                        break; // Found the most recent user reply
+                    }
+                }
+            }
+        }
+    }
+
+    seen_until
+}
 
 pub async fn handle_bridge_message(
     event: OriginalSyncRoomMessageEvent,

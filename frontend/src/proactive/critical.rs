@@ -1,16 +1,43 @@
 use yew::prelude::*;
 use crate::utils::api::Api;
+use crate::proactive::constant_monitoring::MonitoredContactsSection;
+use crate::proactive::waiting_checks::WaitingChecksSection;
 use log::info;
 use wasm_bindgen_futures::spawn_local;
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, PartialEq)]
+pub enum FieldSaveState {
+    Idle,
+    Saving,
+    Success,
+    Error(String),
+}
+
+fn render_save_indicator(state: &FieldSaveState) -> Html {
+    match state {
+        FieldSaveState::Idle => html! {},
+        FieldSaveState::Saving => html! {
+            <span class="save-indicator">
+                <span class="save-spinner"></span>
+            </span>
+        },
+        FieldSaveState::Success => html! {
+            <span class="save-indicator save-success">{"✓"}</span>
+        },
+        FieldSaveState::Error(msg) => html! {
+            <span class="save-indicator save-error" title={msg.clone()}>{"✗"}</span>
+        },
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CriticalResponse {
-    enabled: Option<String>,
-    average_critical_per_day: f32,
-    estimated_monthly_price: f32,
-    call_notify: bool,
-    action_on_critical_message: Option<String>,
+    pub enabled: Option<String>,
+    pub average_critical_per_day: f32,
+    pub estimated_monthly_price: f32,
+    pub call_notify: bool,
+    pub action_on_critical_message: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -23,16 +50,22 @@ pub struct UpdateCriticalRequest {
 #[derive(Properties, PartialEq)]
 pub struct CriticalSectionProps {
     pub phone_number: String,
+    #[prop_or(false)]
+    pub proactive_disabled: bool,
 }
 
 #[function_component(CriticalSection)]
 pub fn critical_section(props: &CriticalSectionProps) -> Html {
+    // CriticalSection owns the critical_enabled state (single source of truth)
     let critical_enabled = use_state(|| None::<String>);
     let average_critical = use_state(|| 0.0);
     let estimated_price = use_state(|| 0.0);
     let call_notify = use_state(|| true);
-    let is_saving = use_state(|| false);
     let mode = use_state(|| "all".to_string());
+    // Per-field save states for visual feedback
+    let enabled_save_state = use_state(|| FieldSaveState::Idle);
+    let call_notify_save_state = use_state(|| FieldSaveState::Idle);
+    let mode_save_state = use_state(|| FieldSaveState::Idle);
     // States for info toggles
     let show_message_info = use_state(|| false);
     let show_action_info = use_state(|| false);
@@ -46,6 +79,7 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
         use_effect_with_deps(
             move |_| {
                 // Auth handled by cookies
+                // Fetch critical settings
                 spawn_local(async move {
                     if let Ok(resp) = Api::get("/api/profile/critical")
                     .send()
@@ -74,13 +108,12 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
         );
     }
     let handle_option_change = {
+        let save_state = enabled_save_state.clone();
         let critical_enabled = critical_enabled.clone();
-        let is_saving = is_saving.clone();
         Callback::from(move |new_value: Option<String>| {
-            let is_saving = is_saving.clone();
+            let save_state = save_state.clone();
             let critical_enabled = critical_enabled.clone();
-            // Auth handled by cookies
-            is_saving.set(true);
+            save_state.set(FieldSaveState::Saving);
             spawn_local(async move {
                 let request = UpdateCriticalRequest {
                     enabled: Some(new_value.clone()),
@@ -95,29 +128,35 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
                 .await
                 {
                     Ok(response) if response.ok() => {
-                        // Only update UI if save was successful
+                        // Update internal state directly
                         critical_enabled.set(new_value);
                         info!("Successfully updated critical notification method");
+                        save_state.set(FieldSaveState::Success);
+                        let save_state_clone = save_state.clone();
+                        spawn_local(async move {
+                            gloo_timers::future::TimeoutFuture::new(2000).await;
+                            save_state_clone.set(FieldSaveState::Idle);
+                        });
                     },
                     Ok(response) => {
                         info!("Failed to update critical notification method: {}", response.status());
+                        save_state.set(FieldSaveState::Error("Failed to save".to_string()));
                     },
                     Err(e) => {
                         info!("Error updating critical notification method: {:?}", e);
+                        save_state.set(FieldSaveState::Error("Network error".to_string()));
                     }
                 }
-                is_saving.set(false);
             });
         })
     };
     let handle_call_notify_change = {
         let call_notify = call_notify.clone();
-        let is_saving = is_saving.clone();
+        let save_state = call_notify_save_state.clone();
         Callback::from(move |new_value: bool| {
-            let is_saving = is_saving.clone();
+            let save_state = save_state.clone();
             let call_notify = call_notify.clone();
-            // Auth handled by cookies
-            is_saving.set(true);
+            save_state.set(FieldSaveState::Saving);
             spawn_local(async move {
                 let request = UpdateCriticalRequest {
                     enabled: None,
@@ -131,29 +170,34 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
                 .await
                 {
                     Ok(response) if response.ok() => {
-                        // Only update UI if save was successful
                         call_notify.set(new_value);
                         info!("Successfully updated call notify setting");
+                        save_state.set(FieldSaveState::Success);
+                        let save_state_clone = save_state.clone();
+                        spawn_local(async move {
+                            gloo_timers::future::TimeoutFuture::new(2000).await;
+                            save_state_clone.set(FieldSaveState::Idle);
+                        });
                     },
                     Ok(response) => {
                         info!("Failed to update call notify setting: {}", response.status());
+                        save_state.set(FieldSaveState::Error("Failed to save".to_string()));
                     },
                     Err(e) => {
                         info!("Error updating call notify setting: {:?}", e);
+                        save_state.set(FieldSaveState::Error("Network error".to_string()));
                     }
                 }
-                is_saving.set(false);
             });
         })
     };
     let handle_mode_change = {
         let mode = mode.clone();
-        let is_saving = is_saving.clone();
+        let save_state = mode_save_state.clone();
         Callback::from(move |new_mode: String| {
-            let is_saving = is_saving.clone();
+            let save_state = save_state.clone();
             let mode = mode.clone();
-            // Auth handled by cookies
-            is_saving.set(true);
+            save_state.set(FieldSaveState::Saving);
             let new_value: Option<String> = match new_mode.as_str() {
                 "all" => None,
                 "family" => Some("notify_family".to_string()),
@@ -172,18 +216,24 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
                 .await
                 {
                     Ok(response) if response.ok() => {
-                        // Only update UI if save was successful
                         mode.set(new_mode);
                         info!("Successfully updated action on critical message");
+                        save_state.set(FieldSaveState::Success);
+                        let save_state_clone = save_state.clone();
+                        spawn_local(async move {
+                            gloo_timers::future::TimeoutFuture::new(2000).await;
+                            save_state_clone.set(FieldSaveState::Idle);
+                        });
                     },
                     Ok(response) => {
                         info!("Failed to update action on critical message: {}", response.status());
+                        save_state.set(FieldSaveState::Error("Failed to save".to_string()));
                     },
                     Err(e) => {
                         info!("Error updating action on critical message: {:?}", e);
+                        save_state.set(FieldSaveState::Error("Network error".to_string()));
                     }
                 }
-                is_saving.set(false);
             });
         })
     };
@@ -432,11 +482,93 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
                     .info-details li {
                         margin-bottom: 0.5rem;
                     }
+                    .save-indicator {
+                        min-width: 24px;
+                        height: 24px;
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin-left: 8px;
+                    }
+                    .save-spinner {
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid rgba(245, 158, 11, 0.3);
+                        border-top-color: #F59E0B;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                    }
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                    .save-success {
+                        color: #22C55E;
+                        font-size: 18px;
+                    }
+                    .save-error {
+                        color: #EF4444;
+                        cursor: help;
+                        font-size: 18px;
+                    }
+                    .critical-label-row {
+                        display: flex;
+                        align-items: center;
+                    }
+                    .disabled-hint {
+                        font-size: 0.75rem;
+                        color: #666;
+                        font-style: italic;
+                        margin-left: 0.5rem;
+                    }
+                    .section-disabled {
+                        opacity: 0.5;
+                    }
+                    .internal-flow-step {
+                        position: relative;
+                        margin-bottom: 2rem;
+                    }
+                    .internal-flow-step::after {
+                        content: '↓';
+                        position: absolute;
+                        left: 50%;
+                        bottom: -1.5rem;
+                        transform: translateX(-50%);
+                        font-size: 2rem;
+                        color: #fff;
+                        opacity: 0.5;
+                    }
                 "#}
             </style>
+            // MonitoredContactsSection (grayed only when master toggle is off)
+            <div class={classes!("internal-flow-step", if props.proactive_disabled { "section-disabled" } else { "" })}>
+                <MonitoredContactsSection
+                    service_type={"email".to_string()}
+                    contacts={Vec::new()}
+                    on_change={Callback::from(|_| ())}
+                    phone_number={props.phone_number.clone()}
+                    critical_disabled={props.proactive_disabled}
+                />
+            </div>
+            // WaitingChecksSection (grayed only when master toggle is off)
+            <div class={classes!("internal-flow-step", if props.proactive_disabled { "section-disabled" } else { "" })}>
+                <WaitingChecksSection
+                    service_type={"messaging".to_string()}
+                    checks={Vec::new()}
+                    on_change={Callback::from(|_| ())}
+                    phone_number={props.phone_number.clone()}
+                    critical_disabled={props.proactive_disabled}
+                />
+            </div>
+            // Critical Notifications content (grayed only when master toggle is off)
+            <div class={classes!(if props.proactive_disabled { "section-disabled" } else { "" })}>
             <div class="filter-header">
                 <div class="filter-title critical">
                     <h3>{"Critical Notifications"}</h3>
+                    {if props.proactive_disabled {
+                        html! { <span class="disabled-hint">{"(not active)"}</span> }
+                    } else {
+                        html! {}
+                    }}
                 </div>
                 <div class="flow-description">
                     {if country == "US" {
@@ -453,7 +585,10 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
                 </div>
             </div>
             <div class="critical-option">
-                <span class="critical-label">{"Notification Method"}</span>
+                <div class="critical-label-row">
+                    <span class="critical-label">{"Notification Method"}</span>
+                    {render_save_indicator(&*enabled_save_state)}
+                </div>
                 <div class="radio-group">
                     <label class="radio-option" onclick={
                         let handle_option_change = handle_option_change.clone();
@@ -476,7 +611,7 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
                         <input
                             type="radio"
                             name="critical-notifications"
-                            checked={*critical_enabled == Some("sms".to_string())}
+                            checked={matches!(&*critical_enabled, Some(s) if s == "sms")}
                         />
                         <div class="radio-label">
                             {"SMS"}
@@ -493,7 +628,7 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
                         <input
                             type="radio"
                             name="critical-notifications"
-                            checked={*critical_enabled == Some("call".to_string())}
+                            checked={matches!(&*critical_enabled, Some(s) if s == "call")}
                         />
                         <div class="radio-label">
                             {"Phone Call"}
@@ -506,7 +641,10 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
                 </div>
             </div>
             <div class="critical-option">
-                <span class="critical-label">{"What is Critical?"}</span>
+                <div class="critical-label-row">
+                    <span class="critical-label">{"What is Critical?"}</span>
+                    {render_save_indicator(&*call_notify_save_state)}
+                </div>
                 <div class="info-subsection">
                     <ul>
                         <li>
@@ -565,6 +703,7 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
             <div class="critical-option">
                 <div style="display: flex; align-items: center; gap: 0.5rem;">
                     <span class="critical-label">{"Action on Critical Message"}</span>
+                    {render_save_indicator(&*mode_save_state)}
                     <button class="info-button" onclick={toggle_action_info.clone()}>
                         {"ⓘ"}
                     </button>
@@ -610,6 +749,7 @@ pub fn critical_section(props: &CriticalSectionProps) -> Html {
                         </div>
                     </label>
                 </div>
+            </div>
             </div>
         </>
     }

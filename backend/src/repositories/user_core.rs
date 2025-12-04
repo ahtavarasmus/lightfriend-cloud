@@ -493,6 +493,80 @@ impl UserCore {
         Ok(())
     }
 
+    // Individual field update methods for inline editing
+    pub fn update_nickname(&self, user_id: i32, nickname: &str) -> Result<(), DieselError> {
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        diesel::update(users::table.find(user_id))
+            .set(users::nickname.eq(nickname))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn update_info(&self, user_id: i32, info: &str) -> Result<(), DieselError> {
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        self.ensure_user_info_exists(user_id)?;
+        diesel::update(user_info::table.filter(user_info::user_id.eq(user_id)))
+            .set(user_info::info.eq(info))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn update_location(&self, user_id: i32, location: &str) -> Result<(), DieselError> {
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        self.ensure_user_info_exists(user_id)?;
+        diesel::update(user_info::table.filter(user_info::user_id.eq(user_id)))
+            .set(user_info::location.eq(location))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn update_nearby_places(&self, user_id: i32, nearby_places: &str) -> Result<(), DieselError> {
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        self.ensure_user_info_exists(user_id)?;
+        diesel::update(user_info::table.filter(user_info::user_id.eq(user_id)))
+            .set(user_info::nearby_places.eq(nearby_places))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn update_timezone_auto(&self, user_id: i32, timezone_auto: bool) -> Result<(), DieselError> {
+        use crate::schema::user_settings;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        self.ensure_user_settings_exist(user_id)?;
+        diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
+            .set(user_settings::timezone_auto.eq(timezone_auto))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn update_notification_type(&self, user_id: i32, notification_type: Option<&str>) -> Result<(), DieselError> {
+        use crate::schema::user_settings;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        self.ensure_user_settings_exist(user_id)?;
+        diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
+            .set(user_settings::notification_type.eq(notification_type))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn update_save_context(&self, user_id: i32, save_context: i32) -> Result<(), DieselError> {
+        use crate::schema::user_settings;
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        self.ensure_user_settings_exist(user_id)?;
+        diesel::update(user_settings::table.filter(user_settings::user_id.eq(user_id)))
+            .set(user_settings::save_context.eq(save_context))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
+    pub fn clear_preferred_number(&self, user_id: i32) -> Result<(), DieselError> {
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+        diesel::update(users::table.find(user_id))
+            .set(users::preferred_number.eq(None::<String>))
+            .execute(&mut conn)?;
+        Ok(())
+    }
+
     pub fn set_preferred_number_to_us_default(&self, user_id: i32) -> Result<String, Box<dyn Error>> {
         let preferred_number = std::env::var("USA_PHONE").expect("USA_PHONE not found");
 

@@ -204,6 +204,25 @@ diesel::table! {
 }
 
 diesel::table! {
+    totp_backup_codes (id) {
+        id -> Nullable<Integer>,
+        user_id -> Integer,
+        code_hash -> Text,
+        used -> Integer,
+    }
+}
+
+diesel::table! {
+    totp_secrets (id) {
+        id -> Nullable<Integer>,
+        user_id -> Integer,
+        encrypted_secret -> Text,
+        enabled -> Integer,
+        created_at -> Integer,
+    }
+}
+
+diesel::table! {
     uber (id) {
         id -> Nullable<Integer>,
         user_id -> Integer,
@@ -339,6 +358,8 @@ diesel::joinable!(message_history -> users (user_id));
 diesel::joinable!(priority_senders -> users (user_id));
 diesel::joinable!(processed_emails -> users (user_id));
 diesel::joinable!(tesla -> users (user_id));
+diesel::joinable!(totp_backup_codes -> users (user_id));
+diesel::joinable!(totp_secrets -> users (user_id));
 diesel::joinable!(user_info -> users (user_id));
 diesel::joinable!(user_settings -> users (user_id));
 diesel::joinable!(waiting_checks -> users (user_id));
@@ -360,6 +381,8 @@ diesel::allow_tables_to_appear_in_same_query!(
     subaccounts,
     task_notifications,
     tesla,
+    totp_backup_codes,
+    totp_secrets,
     uber,
     usage_logs,
     user_info,

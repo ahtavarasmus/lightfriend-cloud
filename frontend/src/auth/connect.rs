@@ -48,6 +48,7 @@ pub fn connect(props: &ConnectProps) -> Html {
     let uber_connected = use_state(|| false);
     let tesla_connected = use_state(|| false);
     let selected_app = use_state(|| None::<String>);
+    let proactive_enabled = use_state(|| true);
     {
         let calendar_connected = calendar_connected.clone();
         let memory_connected = memory_connected.clone();
@@ -445,58 +446,32 @@ pub fn connect(props: &ConnectProps) -> Html {
                         <div class="service-list">
                             {
                                 match *active_monitoring_tab {
-                                    MonitoringTab::ForEachMessage => html! {
+                                    MonitoringTab::ForEachMessage => {
+                                        let proactive_enabled = proactive_enabled.clone();
+                                        html! {
                                         <>
                                             <div class={classes!("service-item")}>
-                                                {
-                                                    html! {
-                                                        <crate::proactive::agent_on::ProactiveAgentSection/>
-                                                    }
-                                                }
+                                                <crate::proactive::agent_on::ProactiveAgentSection
+                                                    on_change={Callback::from({
+                                                        let proactive_enabled = proactive_enabled.clone();
+                                                        move |enabled: bool| proactive_enabled.set(enabled)
+                                                    })}
+                                                />
                                             </div>
                                             <h4 class="flow-title">{"Notification Flow"}</h4>
-                                                // Monitored Contacts Section
-                                                <div class={classes!("service-item", "flow-step")}>
-                                                    {
-                                                        html! {
-                                                            <crate::proactive::constant_monitoring::MonitoredContactsSection
-                                                                service_type={"email".to_string()}
-                                                                contacts={Vec::new()}
-                                                                on_change={Callback::from(|_| ())}
-                                                                phone_number={props.phone_number.clone()}
-                                                            />
-                                                        }
-                                                    }
-                                                </div>
-                                                // Waiting Checks Section
-                                                <div class={classes!("service-item", "flow-step")}>
-                                                    {
-                                                        html! {
-                                                            <crate::proactive::waiting_checks::WaitingChecksSection
-                                                                service_type={"messaging".to_string()}
-                                                                checks={Vec::new()}
-                                                                on_change={Callback::from(|_| ())}
-                                                                phone_number={props.phone_number.clone()}
-                                                            />
-                                                        }
-                                                    }
-                                                </div>
-                                                // Critical Section
-                                                <div class={classes!("service-item", "flow-step")}>
-                                                    {
-                                                        html! {
-                                                            <crate::proactive::critical::CriticalSection
-                                                                phone_number={props.phone_number.clone()}
-                                                                />
-                                                        }
-                                                    }
+                                                // CriticalSection now contains MonitoredContacts + WaitingChecks + Critical settings
+                                                <div class={classes!("service-item")}>
+                                                    <crate::proactive::critical::CriticalSection
+                                                        phone_number={props.phone_number.clone()}
+                                                        proactive_disabled={!*proactive_enabled}
+                                                    />
                                                 </div>
                                                 <p class="flow-description">{"If a match is found in any of the above steps, a notification message will be sent to you. Otherwise, no message will be sent."}</p>
                                                 <p class="flow-description">{"Only unread messages will go through this flow. Lightfriend waits variable amount of time before starting to process a incoming message. This is to prevent processing messages that you had already seen. When you are offline, the message will be processed within 30 seconds and when actively chatting on the original app, the wait will be 5 minutes."}</p>
 
                                                 <br/>
                                         </>
-                                    },
+                                    }},
                                     MonitoringTab::Scheduled => html! {
                                         <div class={classes!("service-item")}>
                                             {

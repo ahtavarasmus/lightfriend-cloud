@@ -4,6 +4,32 @@ use log::info;
 use wasm_bindgen_futures::spawn_local;
 use serde::{Deserialize, Serialize};
 use crate::utils::api::Api;
+use gloo_timers::future::TimeoutFuture;
+
+#[derive(Clone, PartialEq)]
+pub enum FieldSaveState {
+    Idle,
+    Saving,
+    Success,
+    Error(String),
+}
+
+fn render_save_indicator(state: &FieldSaveState) -> Html {
+    match state {
+        FieldSaveState::Idle => html! {},
+        FieldSaveState::Saving => html! {
+            <span class="save-indicator">
+                <span class="save-spinner"></span>
+            </span>
+        },
+        FieldSaveState::Success => html! {
+            <span class="save-indicator save-success">{"✓"}</span>
+        },
+        FieldSaveState::Error(msg) => html! {
+            <span class="save-indicator save-error" title={msg.clone()}>{"✗"}</span>
+        },
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProactiveResponse {
@@ -15,15 +41,22 @@ pub struct UpdateProactiveRequest {
     enabled: bool,
 }
 
+#[derive(Properties, PartialEq)]
+pub struct ProactiveAgentSectionProps {
+    #[prop_or_default]
+    pub on_change: Callback<bool>,
+}
+
 #[function_component(ProactiveAgentSection)]
-pub fn proactive_agent_section() -> Html {
+pub fn proactive_agent_section(props: &ProactiveAgentSectionProps) -> Html {
     let proactive_enabled = use_state(|| true);
     let show_info = use_state(|| false);
-    let is_saving = use_state(|| false);
+    let save_state = use_state(|| FieldSaveState::Idle);
 
     // Load proactive agent settings when component mounts
     {
         let proactive_enabled = proactive_enabled.clone();
+        let on_change = props.on_change.clone();
         use_effect_with_deps(
             move |_| {
                 spawn_local(async move {
@@ -34,6 +67,7 @@ pub fn proactive_agent_section() -> Html {
                         if let Ok(proactive) = resp.json::<ProactiveResponse>().await {
                             info!("Received proactive settings from backend: {:?}", proactive);
                             proactive_enabled.set(proactive.enabled);
+                            on_change.emit(proactive.enabled);
                         }
                     }
                 });
@@ -45,21 +79,39 @@ pub fn proactive_agent_section() -> Html {
 
     let handle_option_change = {
         let proactive_enabled = proactive_enabled.clone();
-        let is_saving = is_saving.clone();
+        let save_state = save_state.clone();
+        let on_change = props.on_change.clone();
         Callback::from(move |new_value: bool| {
-            let is_saving = is_saving.clone();
-            proactive_enabled.set(new_value.clone());
-            is_saving.set(true);
+            let save_state = save_state.clone();
+            let on_change = on_change.clone();
+            proactive_enabled.set(new_value);
+            on_change.emit(new_value);
+            save_state.set(FieldSaveState::Saving);
             spawn_local(async move {
                 let request = UpdateProactiveRequest {
                     enabled: new_value,
                 };
-                let result = Api::post("/api/profile/proactive-agent")
+                match Api::post("/api/profile/proactive-agent")
                     .header("Content-Type", "application/json")
                     .body(serde_json::to_string(&request).unwrap())
                     .send()
-                    .await;
-                is_saving.set(false);
+                    .await
+                {
+                    Ok(response) if response.ok() => {
+                        save_state.set(FieldSaveState::Success);
+                        let save_state_clone = save_state.clone();
+                        spawn_local(async move {
+                            TimeoutFuture::new(2000).await;
+                            save_state_clone.set(FieldSaveState::Idle);
+                        });
+                    },
+                    Ok(_) => {
+                        save_state.set(FieldSaveState::Error("Failed to save".to_string()));
+                    },
+                    Err(_) => {
+                        save_state.set(FieldSaveState::Error("Network error".to_string()));
+                    }
+                }
             });
         })
     };
@@ -235,11 +287,44 @@ pub fn proactive_agent_section() -> Html {
                         font-size: 0.8rem;
                         margin-top: 0.25rem;
                     }
+                    .save-indicator {
+                        min-width: 24px;
+                        height: 24px;
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin-left: 8px;
+                    }
+                    .save-spinner {
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid rgba(52, 211, 153, 0.3);
+                        border-top-color: #34D399;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                    }
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                    .save-success {
+                        color: #22C55E;
+                        font-size: 18px;
+                    }
+                    .save-error {
+                        color: #EF4444;
+                        cursor: help;
+                        font-size: 18px;
+                    }
+                    .proactive-label-row {
+                        display: flex;
+                        align-items: center;
+                    }
                 "#}
             </style>
             <div class="filter-header">
                 <div class="filter-title proactive">
                     <h3>{"Notifications Status"}</h3>
+                    {render_save_indicator(&*save_state)}
                     <button
                         class="info-button"
                         onclick={Callback::from({

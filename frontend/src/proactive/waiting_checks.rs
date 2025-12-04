@@ -3,6 +3,31 @@ use wasm_bindgen_futures::spawn_local;
 use web_sys::{HtmlInputElement, KeyboardEvent, InputEvent, Event};
 use serde::{Deserialize, Serialize};
 use crate::utils::api::Api;
+
+#[derive(Clone, PartialEq)]
+pub enum FieldSaveState {
+    Idle,
+    Saving,
+    Success,
+    Error(String),
+}
+
+fn render_save_indicator(state: &FieldSaveState) -> Html {
+    match state {
+        FieldSaveState::Idle => html! {},
+        FieldSaveState::Saving => html! {
+            <span class="save-indicator">
+                <span class="save-spinner"></span>
+            </span>
+        },
+        FieldSaveState::Success => html! {
+            <span class="save-indicator save-success">{"✓"}</span>
+        },
+        FieldSaveState::Error(msg) => html! {
+            <span class="save-indicator save-error" title={msg.clone()}>{"✗"}</span>
+        },
+    }
+}
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct WaitingCheck {
     pub content: String,
@@ -21,6 +46,8 @@ pub struct WaitingChecksProps {
     pub checks: Vec<WaitingCheck>,
     pub on_change: Callback<Vec<WaitingCheck>>,
     pub phone_number: String,
+    #[prop_or(false)]
+    pub critical_disabled: bool,
 }
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct PrioritySender {
@@ -36,6 +63,7 @@ pub fn waiting_checks_section(props: &WaitingChecksProps) -> Html {
     let checks_local = use_state(|| props.checks.clone());
     let error_message = use_state(|| None::<String>);
     let show_info = use_state(|| false);
+    let add_save_state = use_state(|| FieldSaveState::Idle);
     let refresh_from_server = {
         let checks_local = checks_local.clone();
         let on_change = props.on_change.clone();
@@ -73,38 +101,58 @@ pub fn waiting_checks_section(props: &WaitingChecksProps) -> Html {
         let selected_noti_type = selected_noti_type.clone();
         let checks_local = checks_local.clone();
         let error_message = error_message.clone();
-      
+        let save_state = add_save_state.clone();
+
         Callback::from(move |_| {
             let check = (*new_check).trim().to_string();
             if check.is_empty() { return; }
             let service_type = (*selected_service).clone();
             let error_message = error_message.clone();
+            let save_state = save_state.clone();
             // Check if we've reached the maximum number of checks
             if (*checks_local).len() >= 5 {
                 error_message.set(Some("Maximum of 5 waiting checks allowed".to_string()));
+                save_state.set(FieldSaveState::Error("Max limit reached".to_string()));
                 return;
             }
-          
+
             let new_check = new_check.clone();
             let refresh = refresh.clone();
             let service_type = service_type.clone();
             let noti_type = (*selected_noti_type).clone();
+            save_state.set(FieldSaveState::Saving);
             spawn_local(async move {
-                let _ = Api::post(&format!(
+                match Api::post(&format!(
                     "/api/filters/waiting-check/{}",
                     service_type
                 ))
-                .header("Content-Type", "application/json")
-                .body(serde_json::to_string(&WaitingCheckRequest {
+                .json(&WaitingCheckRequest {
                     content: check,
                     service_type: service_type.clone(),
                     noti_type: Some(noti_type),
-                }).unwrap())
+                })
+                .unwrap()
                 .send()
-                .await;
-                new_check.set(String::new());
-                error_message.set(None);
-                refresh.emit(());
+                .await
+                {
+                    Ok(response) if response.ok() => {
+                        new_check.set(String::new());
+                        error_message.set(None);
+                        save_state.set(FieldSaveState::Success);
+                        let save_state_clone = save_state.clone();
+                        spawn_local(async move {
+                            gloo_timers::future::TimeoutFuture::new(2000).await;
+                            save_state_clone.set(FieldSaveState::Idle);
+                        });
+                        refresh.emit(());
+                    },
+                    Ok(_) => {
+                        save_state.set(FieldSaveState::Error("Failed to add".to_string()));
+                    },
+                    Err(_) => {
+                        save_state.set(FieldSaveState::Error("Network error".to_string()));
+                    }
+                }
             });
         })
     };
@@ -493,12 +541,60 @@ pub fn waiting_checks_section(props: &WaitingChecksProps) -> Html {
                         font-size: 0.8rem;
                         white-space: nowrap;
                     }
+                    .save-indicator {
+                        min-width: 24px;
+                        height: 24px;
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        margin-left: 8px;
+                    }
+                    .save-spinner {
+                        width: 16px;
+                        height: 16px;
+                        border: 2px solid rgba(245, 158, 11, 0.3);
+                        border-top-color: #F59E0B;
+                        border-radius: 50%;
+                        animation: spin 1s linear infinite;
+                    }
+                    @keyframes spin {
+                        to { transform: rotate(360deg); }
+                    }
+                    .save-success {
+                        color: #22C55E;
+                        font-size: 18px;
+                    }
+                    .save-error {
+                        color: #EF4444;
+                        cursor: help;
+                        font-size: 18px;
+                    }
+                    .add-button-row {
+                        display: flex;
+                        align-items: center;
+                        gap: 0.5rem;
+                    }
+                    .section-disabled {
+                        opacity: 0.5;
+                    }
+                    .disabled-hint {
+                        font-size: 0.75rem;
+                        color: #666;
+                        font-style: italic;
+                        margin-left: 0.5rem;
+                    }
                 "#}
             </style>
+            <div class={classes!(if props.critical_disabled { "section-disabled" } else { "" })}>
             <div class="filter-header">
                 <div class="filter-title">
                     <i class="fas fa-hourglass-half" style="color: #4ECDC4;"></i>
                     <h3>{"Waiting Checks"}</h3>
+                    {if props.critical_disabled {
+                        html! { <span class="disabled-hint">{"(not active)"}</span> }
+                    } else {
+                        html! {}
+                    }}
                     <button
                         class="info-button"
                         onclick={Callback::from({
@@ -607,7 +703,10 @@ pub fn waiting_checks_section(props: &WaitingChecksProps) -> Html {
                             <option value="sms">{"SMS"}</option>
                         </select>
                     </div>
-                    <button onclick={Callback::from(move |_| add_waiting_check.emit(()))}>{"Add"}</button>
+                    <div class="add-button-row">
+                        <button onclick={Callback::from(move |_| add_waiting_check.emit(()))}>{"Add"}</button>
+                        {render_save_indicator(&*add_save_state)}
+                    </div>
                 </div>
             </div>
             <ul class="filter-list">
@@ -638,6 +737,7 @@ pub fn waiting_checks_section(props: &WaitingChecksProps) -> Html {
                 }).collect::<Html>()
             }
             </ul>
+            </div>
         </>
     }
 }

@@ -130,6 +130,43 @@ pub async fn login(
    
     match bcrypt::verify(&login_req.password, &user.password_hash) {
         Ok(true) => {
+            // Check if TOTP is enabled for this user
+            let totp_enabled = state.totp_repository.is_totp_enabled(user.id)
+                .unwrap_or(false);
+
+            if totp_enabled {
+                // Generate a temporary token for the 2FA step
+                let totp_token: String = rand::thread_rng()
+                    .sample_iter(&rand::distributions::Alphanumeric)
+                    .take(32)
+                    .map(char::from)
+                    .collect();
+
+                // Set expiry to 5 minutes from now
+                let expiry = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs() as i64 + 300; // 5 minutes
+
+                // Store the pending login
+                state.pending_totp_logins.insert(totp_token.clone(), (user.id, expiry));
+
+                // Return response indicating TOTP is required
+                let mut response = Response::new(axum::body::Body::from(
+                    serde_json::to_string(&json!({
+                        "requires_totp": true,
+                        "totp_token": totp_token,
+                        "message": "Please enter your 2FA code"
+                    })).unwrap()
+                ));
+                *response.status_mut() = StatusCode::OK;
+                response.headers_mut().insert(
+                    "Content-Type",
+                    "application/json".parse().unwrap()
+                );
+                return Ok(response);
+            }
+
             generate_tokens_and_response(user.id)
         }
         _ => {

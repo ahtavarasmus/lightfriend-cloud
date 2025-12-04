@@ -26,6 +26,8 @@ impl RequestWrapper {
         let request = match method {
             "POST" => Request::post(&full_url),
             "DELETE" => Request::delete(&full_url),
+            "PATCH" => Request::patch(&full_url),
+            "PUT" => Request::put(&full_url),
             _ => Request::get(&full_url),
         }
         .credentials(RequestCredentials::Include);
@@ -104,6 +106,8 @@ impl RequestWrapper {
                     let mut retry_request = match self.method.as_str() {
                         "POST" => Request::post(&full_url),
                         "DELETE" => Request::delete(&full_url),
+                        "PATCH" => Request::patch(&full_url),
+                        "PUT" => Request::put(&full_url),
                         _ => Request::get(&full_url),
                     }
                     .credentials(RequestCredentials::Include);
@@ -158,5 +162,15 @@ impl Api {
     /// Create a DELETE request with automatic credentials and backend URL
     pub fn delete(path: &str) -> RequestWrapper {
         RequestWrapper::new(path, "DELETE")
+    }
+
+    /// Create a PATCH request with automatic credentials and backend URL
+    pub fn patch(path: &str) -> RequestWrapper {
+        RequestWrapper::new(path, "PATCH")
+    }
+
+    /// Create a PUT request with automatic credentials and backend URL
+    pub fn put(path: &str) -> RequestWrapper {
+        RequestWrapper::new(path, "PUT")
     }
 }

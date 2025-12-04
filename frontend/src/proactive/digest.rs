@@ -3,6 +3,31 @@ use log::info;
 use wasm_bindgen_futures::spawn_local;
 use serde::{Deserialize, Serialize};
 use crate::utils::api::Api;
+
+#[derive(Clone, PartialEq)]
+pub enum FieldSaveState {
+    Idle,
+    Saving,
+    Success,
+    Error(String),
+}
+
+fn render_save_indicator(state: &FieldSaveState) -> Html {
+    match state {
+        FieldSaveState::Idle => html! {},
+        FieldSaveState::Saving => html! {
+            <span class="save-indicator">
+                <span class="save-spinner"></span>
+            </span>
+        },
+        FieldSaveState::Success => html! {
+            <span class="save-indicator save-success">{"✓"}</span>
+        },
+        FieldSaveState::Error(msg) => html! {
+            <span class="save-indicator save-error" title={msg.clone()}>{"✗"}</span>
+        },
+    }
+}
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DigestsResponse {
     morning_digest_time: Option<String>, // RFC3339 time string or None
@@ -25,10 +50,10 @@ pub fn digest_section(props: &DigestSectionProps) -> Html {
     let day_digest_time = use_state(|| None::<String>);
     let evening_digest_time = use_state(|| None::<String>);
     let show_info = use_state(|| false);
-    let is_saving = use_state(|| false);
-    let has_unsaved_changes = use_state(|| false);
-    let success_message = use_state(|| None::<String>);
-    let error_message = use_state(|| None::<String>);
+    // Per-field save states for visual feedback
+    let morning_save_state = use_state(|| FieldSaveState::Idle);
+    let day_save_state = use_state(|| FieldSaveState::Idle);
+    let evening_save_state = use_state(|| FieldSaveState::Idle);
     // Load digest settings when component mounts
     {
         let morning_digest_time = morning_digest_time.clone();
@@ -54,80 +79,141 @@ pub fn digest_section(props: &DigestSectionProps) -> Html {
             (),
         );
     }
-    let update_digests = {
+    // Create save callback for morning digest
+    let save_morning = {
         let morning_digest_time = morning_digest_time.clone();
         let day_digest_time = day_digest_time.clone();
         let evening_digest_time = evening_digest_time.clone();
-        let is_saving = is_saving.clone();
-        let has_unsaved_changes = has_unsaved_changes.clone();
-        let success_message = success_message.clone();
-        let error_message = error_message.clone();
-        Callback::from(move |_| {
-            let morning = (*morning_digest_time).clone();
+        let save_state = morning_save_state.clone();
+        Callback::from(move |new_time: Option<String>| {
+            let morning = new_time.clone();
             let day = (*day_digest_time).clone();
             let evening = (*evening_digest_time).clone();
-            let is_saving = is_saving.clone();
-            let has_unsaved_changes = has_unsaved_changes.clone();
-            let success_message = success_message.clone();
-            let error_message = error_message.clone();
-            // Clear any existing messages
-            success_message.set(None);
-            error_message.set(None);
-            is_saving.set(true);
+            let save_state = save_state.clone();
+            let morning_digest_time = morning_digest_time.clone();
+            save_state.set(FieldSaveState::Saving);
             spawn_local(async move {
                 let request = UpdateDigestsRequest {
-                    morning_digest_time: morning,
+                    morning_digest_time: morning.clone(),
                     day_digest_time: day,
                     evening_digest_time: evening,
                 };
-                let result = Api::post("/api/profile/digests")
-                    .header("Content-Type", "application/json")
-                    .body(serde_json::to_string(&request).unwrap())
+                match Api::post("/api/profile/digests")
+                    .json(&request)
+                    .unwrap()
                     .send()
-                    .await;
-                    is_saving.set(false);
-                    match result {
-                        Ok(response) => {
-                            if response.status() == 200 {
-                                match response.json::<serde_json::Value>().await {
-                                    Ok(data) => {
-                                        if let Some(msg) = data.get("message").and_then(|v| v.as_str()) {
-                                            has_unsaved_changes.set(false);
-                                            success_message.set(Some(msg.to_string()));
-                                        } else {
-                                            success_message.set(Some("Digest settings updated successfully".to_string()));
-                                        }
-                                    }
-                                    Err(_) => {
-                                        success_message.set(Some("Digest settings updated successfully".to_string()));
-                                    }
-                                }
-                            } else {
-                                match response.json::<serde_json::Value>().await {
-                                    Ok(error_data) => {
-                                        if let Some(error_msg) = error_data.get("error").and_then(|v| v.as_str()) {
-                                            error_message.set(Some(error_msg.to_string()));
-                                        } else {
-                                            error_message.set(Some("Failed to update digest settings".to_string()));
-                                        }
-                                    }
-                                    Err(_) => {
-                                        error_message.set(Some("Failed to update digest settings".to_string()));
-                                    }
-                                }
-                            }
-                        }
-                        Err(_) => {
-                            error_message.set(Some("Failed to connect to server".to_string()));
+                    .await
+                {
+                    Ok(response) if response.ok() => {
+                        morning_digest_time.set(morning);
+                        info!("Successfully updated morning digest time");
+                        save_state.set(FieldSaveState::Success);
+                        let save_state_clone = save_state.clone();
+                        spawn_local(async move {
+                            gloo_timers::future::TimeoutFuture::new(2000).await;
+                            save_state_clone.set(FieldSaveState::Idle);
+                        });
+                    },
+                    Ok(_) => {
+                        save_state.set(FieldSaveState::Error("Failed to save".to_string()));
+                    },
+                    Err(_) => {
+                        save_state.set(FieldSaveState::Error("Network error".to_string()));
                     }
                 }
             });
         })
     };
-    let handle_time_change = {
-        let has_unsaved_changes = has_unsaved_changes.clone();
-        Callback::from(move |_| {
-            has_unsaved_changes.set(true);
+
+    // Create save callback for day digest
+    let save_day = {
+        let morning_digest_time = morning_digest_time.clone();
+        let day_digest_time = day_digest_time.clone();
+        let evening_digest_time = evening_digest_time.clone();
+        let save_state = day_save_state.clone();
+        Callback::from(move |new_time: Option<String>| {
+            let morning = (*morning_digest_time).clone();
+            let day = new_time.clone();
+            let evening = (*evening_digest_time).clone();
+            let save_state = save_state.clone();
+            let day_digest_time = day_digest_time.clone();
+            save_state.set(FieldSaveState::Saving);
+            spawn_local(async move {
+                let request = UpdateDigestsRequest {
+                    morning_digest_time: morning,
+                    day_digest_time: day.clone(),
+                    evening_digest_time: evening,
+                };
+                match Api::post("/api/profile/digests")
+                    .json(&request)
+                    .unwrap()
+                    .send()
+                    .await
+                {
+                    Ok(response) if response.ok() => {
+                        day_digest_time.set(day);
+                        info!("Successfully updated day digest time");
+                        save_state.set(FieldSaveState::Success);
+                        let save_state_clone = save_state.clone();
+                        spawn_local(async move {
+                            gloo_timers::future::TimeoutFuture::new(2000).await;
+                            save_state_clone.set(FieldSaveState::Idle);
+                        });
+                    },
+                    Ok(_) => {
+                        save_state.set(FieldSaveState::Error("Failed to save".to_string()));
+                    },
+                    Err(_) => {
+                        save_state.set(FieldSaveState::Error("Network error".to_string()));
+                    }
+                }
+            });
+        })
+    };
+
+    // Create save callback for evening digest
+    let save_evening = {
+        let morning_digest_time = morning_digest_time.clone();
+        let day_digest_time = day_digest_time.clone();
+        let evening_digest_time = evening_digest_time.clone();
+        let save_state = evening_save_state.clone();
+        Callback::from(move |new_time: Option<String>| {
+            let morning = (*morning_digest_time).clone();
+            let day = (*day_digest_time).clone();
+            let evening = new_time.clone();
+            let save_state = save_state.clone();
+            let evening_digest_time = evening_digest_time.clone();
+            save_state.set(FieldSaveState::Saving);
+            spawn_local(async move {
+                let request = UpdateDigestsRequest {
+                    morning_digest_time: morning,
+                    day_digest_time: day,
+                    evening_digest_time: evening.clone(),
+                };
+                match Api::post("/api/profile/digests")
+                    .json(&request)
+                    .unwrap()
+                    .send()
+                    .await
+                {
+                    Ok(response) if response.ok() => {
+                        evening_digest_time.set(evening);
+                        info!("Successfully updated evening digest time");
+                        save_state.set(FieldSaveState::Success);
+                        let save_state_clone = save_state.clone();
+                        spawn_local(async move {
+                            gloo_timers::future::TimeoutFuture::new(2000).await;
+                            save_state_clone.set(FieldSaveState::Idle);
+                        });
+                    },
+                    Ok(_) => {
+                        save_state.set(FieldSaveState::Error("Failed to save".to_string()));
+                    },
+                    Err(_) => {
+                        save_state.set(FieldSaveState::Error("Network error".to_string()));
+                    }
+                }
+            });
         })
     };
     let phone_number = props.phone_number.clone();
@@ -438,22 +524,34 @@ pub fn digest_section(props: &DigestSectionProps) -> Html {
                     height: 16px;
                     animation: spin 1s linear infinite;
                 }
-                .message {
-                    margin-top: 1rem;
-                    padding: 0.75rem;
-                    border-radius: 8px;
-                    font-size: 0.9rem;
-                    text-align: center;
+                .save-indicator {
+                    min-width: 24px;
+                    height: 24px;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    margin-left: 8px;
                 }
-                .success-message {
-                    background: rgba(34, 197, 94, 0.1);
+                .save-spinner {
+                    width: 16px;
+                    height: 16px;
+                    border: 2px solid rgba(245, 158, 11, 0.3);
+                    border-top-color: #F59E0B;
+                    border-radius: 50%;
+                    animation: spin 1s linear infinite;
+                }
+                .save-success {
                     color: #22C55E;
-                    border: 1px solid rgba(34, 197, 94, 0.2);
+                    font-size: 18px;
                 }
-                .error-message {
-                    background: rgba(239, 68, 68, 0.1);
+                .save-error {
                     color: #EF4444;
-                    border: 1px solid rgba(239, 68, 68, 0.2);
+                    cursor: help;
+                    font-size: 18px;
+                }
+                .digest-label-row {
+                    display: flex;
+                    align-items: center;
                 }
                 .warning-modal {
                     position: fixed;
@@ -550,19 +648,20 @@ pub fn digest_section(props: &DigestSectionProps) -> Html {
         </div>
         <div class="digest-options">
             <div class={classes!("digest-option", if morning_digest_time.is_some() { "active" } else { "inactive" })}>
-                <span class="digest-label">{"Morning Digest"}</span>
+                <div class="digest-label-row">
+                    <span class="digest-label">{"Morning Digest"}</span>
+                    {render_save_indicator(&*morning_save_state)}
+                </div>
                 <div class="digest-time">
                     <select
                         class="time-input"
                         value={morning_digest_time.as_ref().cloned().unwrap_or("none".to_string())}
                         onchange={Callback::from({
-                            let morning_digest_time = morning_digest_time.clone();
-                            let handle_time_change = handle_time_change.clone();
+                            let save_morning = save_morning.clone();
                             move |e: Event| {
                                 let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
                                 let time = select.value();
-                                morning_digest_time.set(if time == "none" { None } else { Some(time) });
-                                handle_time_change.emit(());
+                                save_morning.emit(if time == "none" { None } else { Some(time) });
                             }
                         })}
                     >
@@ -595,19 +694,20 @@ pub fn digest_section(props: &DigestSectionProps) -> Html {
                 </div>
             </div>
             <div class={classes!("digest-option", if day_digest_time.is_some() { "active" } else { "inactive" })}>
-                <span class="digest-label">{"Day Digest"}</span>
+                <div class="digest-label-row">
+                    <span class="digest-label">{"Day Digest"}</span>
+                    {render_save_indicator(&*day_save_state)}
+                </div>
                 <div class="digest-time">
                     <select
                         class="time-input"
                         value={day_digest_time.as_ref().cloned().unwrap_or("none".to_string())}
                         onchange={Callback::from({
-                            let day_digest_time = day_digest_time.clone();
-                            let handle_time_change = handle_time_change.clone();
+                            let save_day = save_day.clone();
                             move |e: Event| {
                                 let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
                                 let time = select.value();
-                                day_digest_time.set(if time == "none" { None } else { Some(time) });
-                                handle_time_change.emit(());
+                                save_day.emit(if time == "none" { None } else { Some(time) });
                             }
                         })}
                     >
@@ -640,19 +740,20 @@ pub fn digest_section(props: &DigestSectionProps) -> Html {
                 </div>
             </div>
             <div class={classes!("digest-option", if evening_digest_time.is_some() { "active" } else { "inactive" })}>
-                <span class="digest-label">{"Evening Digest"}</span>
+                <div class="digest-label-row">
+                    <span class="digest-label">{"Evening Digest"}</span>
+                    {render_save_indicator(&*evening_save_state)}
+                </div>
                 <div class="digest-time">
                     <select
                         class="time-input"
                         value={evening_digest_time.as_ref().cloned().unwrap_or("none".to_string())}
                         onchange={Callback::from({
-                            let evening_digest_time = evening_digest_time.clone();
-                            let handle_time_change = handle_time_change.clone();
+                            let save_evening = save_evening.clone();
                             move |e: Event| {
                                 let select: web_sys::HtmlSelectElement = e.target_unchecked_into();
                                 let time = select.value();
-                                evening_digest_time.set(if time == "none" { None } else { Some(time) });
-                                handle_time_change.emit(());
+                                save_evening.emit(if time == "none" { None } else { Some(time) });
                             }
                         })}
                     >
@@ -685,39 +786,6 @@ pub fn digest_section(props: &DigestSectionProps) -> Html {
                 </div>
             </div>
         </div>
-        {if let Some(message) = (*success_message).clone() {
-            html! {
-                <div class="message success-message">
-                    {message}
-                </div>
-            }
-        } else if let Some(message) = (*error_message).clone() {
-            html! {
-                <div class="message error-message">
-                    {message}
-                </div>
-            }
-        } else {
-            html! {}
-        }}
-        <button
-            class={classes!("save-button", if *is_saving { "saving" } else { "" })}
-            onclick={update_digests}
-            disabled={*is_saving || !*has_unsaved_changes}
-        >
-            {if *is_saving {
-                html! {
-                    <>
-                        <div class="spinner" />
-                        {"Saving..."}
-                    </>
-                }
-            } else {
-                html! {
-                    {"Save Changes"}
-                }
-            }}
-        </button>
         </>
     }
 }

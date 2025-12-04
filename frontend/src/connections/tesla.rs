@@ -1,9 +1,12 @@
 use yew::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen::closure::Closure;
 use wasm_bindgen_futures::spawn_local;
 use web_sys::window;
 use crate::utils::api::Api;
 use serde::Deserialize;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 #[derive(Debug, Clone, Deserialize, PartialEq)]
 pub struct VehicleInfo {
@@ -33,6 +36,7 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
     let lock_loading = use_state(|| false);
     let climate_loading = use_state(|| false);
     let defrost_loading = use_state(|| false);
+    let remote_start_loading = use_state(|| false);
     let command_result = use_state(|| None::<String>);
     let battery_level = use_state(|| None::<i32>);
     let battery_range = use_state(|| None::<f64>);
@@ -63,6 +67,10 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
     // Climate notification preference
     let notify_on_climate_ready = use_state(|| true);
     let notify_toggle_loading = use_state(|| false);
+
+    // Last refresh timestamp state
+    let last_refresh_time: UseStateHandle<Option<String>> = use_state(|| None);
+    let last_refresh_epoch: UseStateHandle<Rc<RefCell<f64>>> = use_state(|| Rc::new(RefCell::new(0.0)));
 
     // Check Tesla connection status on mount
     {
@@ -108,6 +116,8 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
         let is_climate_on = is_climate_on.clone();
         let is_front_defroster_on = is_front_defroster_on.clone();
         let is_rear_defroster_on = is_rear_defroster_on.clone();
+        let last_refresh_time = last_refresh_time.clone();
+        let last_refresh_epoch = last_refresh_epoch.clone();
 
         use_effect_with_deps(
             move |connected| {
@@ -122,6 +132,8 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                     let is_climate_on = is_climate_on.clone();
                     let is_front_defroster_on = is_front_defroster_on.clone();
                     let is_rear_defroster_on = is_rear_defroster_on.clone();
+                    let last_refresh_time = last_refresh_time.clone();
+                    let last_refresh_epoch = last_refresh_epoch.clone();
 
                     spawn_local(async move {
                         battery_loading.set(true);
@@ -156,6 +168,15 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                                         if let Some(rear_defrost) = data["is_rear_defroster_on"].as_bool() {
                                             is_rear_defroster_on.set(Some(rear_defrost));
                                         }
+                                        // Update last refresh timestamp
+                                        let now = web_sys::js_sys::Date::new_0();
+                                        let time_str = format!(
+                                            "{:02}:{:02}",
+                                            now.get_hours() as u32,
+                                            now.get_minutes() as u32,
+                                        );
+                                        last_refresh_time.set(Some(time_str));
+                                        *last_refresh_epoch.borrow_mut() = now.get_time();
                                     }
                                 }
                             }
@@ -317,6 +338,7 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
         let vehicle_pairing_link = vehicle_pairing_link.clone();
         let vehicle_qr_code_url = vehicle_qr_code_url.clone();
         let command_result = command_result.clone();
+        let last_refresh_time = last_refresh_time.clone();
 
         use_effect_with_deps(
             move |connected| {
@@ -341,6 +363,134 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                     vehicle_pairing_link.set(None);
                     vehicle_qr_code_url.set(None);
                     command_result.set(None);
+                    last_refresh_time.set(None);
+                }
+                || ()
+            },
+            tesla_connected.clone(),
+        );
+    }
+
+    // Auto-refresh when browser tab becomes visible (if enough time has passed)
+    {
+        let tesla_connected = tesla_connected.clone();
+        let battery_loading = battery_loading.clone();
+        let battery_level = battery_level.clone();
+        let battery_range = battery_range.clone();
+        let charging_state = charging_state.clone();
+        let is_locked = is_locked.clone();
+        let inside_temp = inside_temp.clone();
+        let outside_temp = outside_temp.clone();
+        let is_climate_on = is_climate_on.clone();
+        let is_front_defroster_on = is_front_defroster_on.clone();
+        let is_rear_defroster_on = is_rear_defroster_on.clone();
+        let last_refresh_time = last_refresh_time.clone();
+        let last_refresh_epoch = last_refresh_epoch.clone();
+
+        use_effect_with_deps(
+            move |connected| {
+                if **connected {
+                    let document = web_sys::window()
+                        .and_then(|w| w.document());
+
+                    if let Some(doc) = document {
+                        let battery_loading = battery_loading.clone();
+                        let battery_level = battery_level.clone();
+                        let battery_range = battery_range.clone();
+                        let charging_state = charging_state.clone();
+                        let is_locked = is_locked.clone();
+                        let inside_temp = inside_temp.clone();
+                        let outside_temp = outside_temp.clone();
+                        let is_climate_on = is_climate_on.clone();
+                        let is_front_defroster_on = is_front_defroster_on.clone();
+                        let is_rear_defroster_on = is_rear_defroster_on.clone();
+                        let last_refresh_time = last_refresh_time.clone();
+                        let last_refresh_epoch = last_refresh_epoch.clone();
+
+                        let callback = Closure::wrap(Box::new(move || {
+                            // Check if document is now visible using web_sys::js_sys::Reflect
+                            if let Some(doc) = web_sys::window().and_then(|w| w.document()) {
+                                if let Ok(hidden) = web_sys::js_sys::Reflect::get(&doc, &"hidden".into()) {
+                                    if hidden == false {
+                                        // Check if at least 30 seconds passed since last refresh
+                                        let now = web_sys::js_sys::Date::new_0().get_time();
+                                        let last_epoch = *last_refresh_epoch.borrow();
+                                        if now - last_epoch > 30_000.0 {
+                                            // Trigger refresh
+                                            let battery_loading = battery_loading.clone();
+                                            let battery_level = battery_level.clone();
+                                            let battery_range = battery_range.clone();
+                                            let charging_state = charging_state.clone();
+                                            let is_locked = is_locked.clone();
+                                            let inside_temp = inside_temp.clone();
+                                            let outside_temp = outside_temp.clone();
+                                            let is_climate_on = is_climate_on.clone();
+                                            let is_front_defroster_on = is_front_defroster_on.clone();
+                                            let is_rear_defroster_on = is_rear_defroster_on.clone();
+                                            let last_refresh_time = last_refresh_time.clone();
+                                            let last_refresh_epoch = last_refresh_epoch.clone();
+
+                                            spawn_local(async move {
+                                                battery_loading.set(true);
+                                                match Api::get("/api/tesla/battery-status").send().await {
+                                                    Ok(response) => {
+                                                        if response.ok() {
+                                                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                                                if let Some(level) = data["battery_level"].as_i64() {
+                                                                    battery_level.set(Some(level as i32));
+                                                                }
+                                                                if let Some(range) = data["battery_range"].as_f64() {
+                                                                    battery_range.set(Some(range));
+                                                                }
+                                                                if let Some(state) = data["charging_state"].as_str() {
+                                                                    charging_state.set(Some(state.to_string()));
+                                                                }
+                                                                if let Some(locked) = data["locked"].as_bool() {
+                                                                    is_locked.set(Some(locked));
+                                                                }
+                                                                if let Some(temp) = data["inside_temp"].as_f64() {
+                                                                    inside_temp.set(Some(temp));
+                                                                }
+                                                                if let Some(temp) = data["outside_temp"].as_f64() {
+                                                                    outside_temp.set(Some(temp));
+                                                                }
+                                                                if let Some(climate) = data["is_climate_on"].as_bool() {
+                                                                    is_climate_on.set(Some(climate));
+                                                                }
+                                                                if let Some(front_defrost) = data["is_front_defroster_on"].as_bool() {
+                                                                    is_front_defroster_on.set(Some(front_defrost));
+                                                                }
+                                                                if let Some(rear_defrost) = data["is_rear_defroster_on"].as_bool() {
+                                                                    is_rear_defroster_on.set(Some(rear_defrost));
+                                                                }
+                                                                // Update timestamp
+                                                                let now = web_sys::js_sys::Date::new_0();
+                                                                let time_str = format!(
+                                                                    "{:02}:{:02}",
+                                                                    now.get_hours() as u32,
+                                                                    now.get_minutes() as u32,
+                                                                );
+                                                                last_refresh_time.set(Some(time_str));
+                                                                *last_refresh_epoch.borrow_mut() = now.get_time();
+                                                            }
+                                                        }
+                                                    }
+                                                    Err(_) => {}
+                                                }
+                                                battery_loading.set(false);
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }) as Box<dyn Fn()>);
+
+                        let _ = doc.add_event_listener_with_callback(
+                            "visibilitychange",
+                            callback.as_ref().unchecked_ref()
+                        );
+                        callback.forget(); // Keep the closure alive
+                    }
                 }
                 || ()
             },
@@ -716,6 +866,55 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
         })
     };
 
+    // Handle remote start button click
+    let handle_remote_start = {
+        let remote_start_loading = remote_start_loading.clone();
+        let command_result = command_result.clone();
+
+        Callback::from(move |_: MouseEvent| {
+            let remote_start_loading = remote_start_loading.clone();
+            let command_result = command_result.clone();
+
+            remote_start_loading.set(true);
+            command_result.set(None);
+
+            spawn_local(async move {
+                let body = serde_json::json!({
+                    "command": "remote_start"
+                });
+
+                let request = match Api::post("/api/tesla/command")
+                    .json(&body)
+                {
+                    Ok(req) => req.send().await,
+                    Err(e) => {
+                        command_result.set(Some(format!("Failed to create request: {}", e)));
+                        remote_start_loading.set(false);
+                        return;
+                    }
+                };
+
+                match request {
+                    Ok(response) => {
+                        if response.ok() {
+                            if let Ok(data) = response.json::<serde_json::Value>().await {
+                                if let Some(msg) = data.get("message").and_then(|m| m.as_str()) {
+                                    command_result.set(Some(msg.to_string()));
+                                }
+                            }
+                        } else {
+                            command_result.set(Some("Failed to execute remote start command".to_string()));
+                        }
+                    }
+                    Err(e) => {
+                        command_result.set(Some(format!("Network error: {}", e)));
+                    }
+                }
+                remote_start_loading.set(false);
+            });
+        })
+    };
+
     // Handle notify on climate ready toggle
     let handle_notify_toggle = {
         let notify_on_climate_ready = notify_on_climate_ready.clone();
@@ -879,6 +1078,8 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
         let is_rear_defroster_on = is_rear_defroster_on.clone();
         let available_vehicles = available_vehicles.clone();
         let selected_vehicle_name = selected_vehicle_name.clone();
+        let last_refresh_time = last_refresh_time.clone();
+        let last_refresh_epoch = last_refresh_epoch.clone();
 
         Callback::from(move |_: MouseEvent| {
             let battery_loading = battery_loading.clone();
@@ -893,6 +1094,8 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
             let is_rear_defroster_on = is_rear_defroster_on.clone();
             let available_vehicles = available_vehicles.clone();
             let selected_vehicle_name = selected_vehicle_name.clone();
+            let last_refresh_time = last_refresh_time.clone();
+            let last_refresh_epoch = last_refresh_epoch.clone();
 
             battery_loading.set(true);
 
@@ -932,6 +1135,15 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                                 if let Some(rear_defrost) = data["is_rear_defroster_on"].as_bool() {
                                     is_rear_defroster_on.set(Some(rear_defrost));
                                 }
+                                // Update last refresh timestamp
+                                let now = web_sys::js_sys::Date::new_0();
+                                let time_str = format!(
+                                    "{:02}:{:02}",
+                                    now.get_hours() as u32,
+                                    now.get_minutes() as u32,
+                                );
+                                last_refresh_time.set(Some(time_str));
+                                *last_refresh_epoch.borrow_mut() = now.get_time();
                             }
 
                             // Also fetch vehicles list to update selected vehicle
@@ -1119,30 +1331,52 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                                     }
                                 }
 
-                                // Show pairing warning for selected unpaired vehicle
+                                // Virtual Key button - always show, style based on paired status
                                 {
                                     (*available_vehicles).iter()
-                                        .find(|v| v.selected && !v.paired)
+                                        .find(|v| v.selected)
                                         .map(|vehicle| {
                                             let vin = vehicle.vin.clone();
+                                            let is_paired = vehicle.paired;
                                             let handle_pairing = handle_show_vehicle_pairing.clone();
-                                            html! {
-                                                <button
-                                                    onclick={Callback::from(move |_| {
-                                                        handle_pairing.emit(vin.clone());
-                                                    })}
-                                                    style="
-                                                        padding: 6px 12px;
-                                                        background: rgba(255, 152, 0, 0.15);
-                                                        color: #ff9800;
-                                                        border: 1px solid rgba(255, 152, 0, 0.3);
-                                                        border-radius: 6px;
-                                                        font-size: 12px;
-                                                        cursor: pointer;
-                                                    "
-                                                >
-                                                    {"⚠️ Setup Virtual Key"}
-                                                </button>
+                                            if is_paired {
+                                                html! {
+                                                    <button
+                                                        onclick={Callback::from(move |_| {
+                                                            handle_pairing.emit(vin.clone());
+                                                        })}
+                                                        style="
+                                                            padding: 6px 12px;
+                                                            background: rgba(105, 240, 174, 0.15);
+                                                            color: #69f0ae;
+                                                            border: 1px solid rgba(105, 240, 174, 0.3);
+                                                            border-radius: 6px;
+                                                            font-size: 12px;
+                                                            cursor: pointer;
+                                                        "
+                                                    >
+                                                        {"🔑 Virtual Key ✓"}
+                                                    </button>
+                                                }
+                                            } else {
+                                                html! {
+                                                    <button
+                                                        onclick={Callback::from(move |_| {
+                                                            handle_pairing.emit(vin.clone());
+                                                        })}
+                                                        style="
+                                                            padding: 6px 12px;
+                                                            background: rgba(255, 152, 0, 0.15);
+                                                            color: #ff9800;
+                                                            border: 1px solid rgba(255, 152, 0, 0.3);
+                                                            border-radius: 6px;
+                                                            font-size: 12px;
+                                                            cursor: pointer;
+                                                        "
+                                                    >
+                                                        {"⚠️ Setup Virtual Key"}
+                                                    </button>
+                                                }
                                             }
                                         })
                                         .unwrap_or(html! {})
@@ -1165,6 +1399,22 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                                 >
                                     {if *battery_loading { "🔄" } else { "🔄 Refresh" }}
                                 </button>
+                                // Last refresh timestamp
+                                {
+                                    if let Some(time) = (*last_refresh_time).clone() {
+                                        html! {
+                                            <span style="
+                                                color: #666;
+                                                font-size: 12px;
+                                                margin-left: 10px;
+                                            ">
+                                                {format!("Updated {}", time)}
+                                            </span>
+                                        }
+                                    } else {
+                                        html! {}
+                                    }
+                                }
                             </div>
 
                             // Vehicle pairing modal (shown when Setup Virtual Key is clicked)
@@ -1417,6 +1667,13 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                                             </div>
                                         </>
                                     }
+                                } else if *battery_loading {
+                                    html! {
+                                        <div style="color: #999; font-size: 14px; text-align: center; padding: 20px 0;">
+                                            <i class="fas fa-spinner fa-spin" style="font-size: 24px; color: #7EB2FF;"></i>
+                                            <div style="margin-top: 10px;">{"Loading vehicle status..."}</div>
+                                        </div>
+                                    }
                                 } else {
                                     html! {
                                         <div style="color: #999; font-size: 14px; text-align: center; padding: 20px 0;">
@@ -1529,6 +1786,33 @@ pub fn tesla_connect(props: &TeslaConnectProps) -> Html {
                                             } else {
                                                 html! { <><i class="fas fa-snowflake"></i>{" Defrost Off"}</> }
                                             }
+                                        }
+                                    }
+                                </button>
+
+                                <button
+                                    onclick={handle_remote_start.clone()}
+                                    disabled={*remote_start_loading}
+                                    class="tesla-control-button"
+                                    style="
+                                        flex: 1;
+                                        min-width: 120px;
+                                        padding: 14px 20px;
+                                        background: rgba(255, 152, 0, 0.1);
+                                        color: #FFB74D;
+                                        border: 1px solid rgba(255, 152, 0, 0.2);
+                                        border-radius: 8px;
+                                        font-size: 15px;
+                                        cursor: pointer;
+                                        transition: all 0.2s;
+                                        opacity: {if *remote_start_loading { \"0.6\" } else { \"1\" }};
+                                    "
+                                >
+                                    {
+                                        if *remote_start_loading {
+                                            html! { <><i class="fas fa-spinner fa-spin"></i>{" Loading..."}</> }
+                                        } else {
+                                            html! { <><i class="fas fa-key"></i>{" Start Drive"}</> }
                                         }
                                     }
                                 </button>
