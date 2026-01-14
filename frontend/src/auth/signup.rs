@@ -669,9 +669,13 @@ pub mod login {
 pub mod password_reset {
     use yew::prelude::*;
     use web_sys::HtmlInputElement;
-    use crate::auth::signup::register::ErrorResponse;
     use gloo_net::http::Request;
     use serde::{Deserialize, Serialize};
+
+    #[derive(Deserialize)]
+    struct ErrorResponse {
+        pub error: String,
+    }
     use yew_router::prelude::*;
     use crate::Route;
     use crate::config;
@@ -999,14 +1003,5 @@ pub mod password_reset {
                 </div>
             </div>
         }
-    }
-}
-
-pub mod register {
-    use serde::Deserialize;
-
-    #[derive(Deserialize)]
-    pub struct ErrorResponse {
-        pub error: String,
     }
 }
