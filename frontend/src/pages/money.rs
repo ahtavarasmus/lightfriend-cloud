@@ -461,123 +461,6 @@ pub fn byot_pricing_display() -> Html {
     }
 }
 
-#[derive(Clone, PartialEq, Deserialize)]
-struct CountryPricing {
-    country_code: String,
-    country_name: String,
-    sms_price: f32,
-    voice_price: f32,
-}
-
-#[derive(Clone, PartialEq, Deserialize)]
-struct NotificationPricingResponse {
-    countries: Vec<CountryPricing>,
-    formula_note: String,
-}
-
-#[function_component(NotificationPricingTable)]
-fn notification_pricing_table() -> Html {
-    let pricing = use_state(|| None::<NotificationPricingResponse>);
-    let loading = use_state(|| true);
-
-    {
-        let pricing = pricing.clone();
-        let loading = loading.clone();
-        use_effect_with_deps(move |_| {
-            wasm_bindgen_futures::spawn_local(async move {
-                let response = Api::get("/api/pricing/notification-only").send().await;
-                if let Ok(resp) = response {
-                    if let Ok(data) = resp.json::<NotificationPricingResponse>().await {
-                        pricing.set(Some(data));
-                    }
-                }
-                loading.set(false);
-            });
-            || ()
-        }, ());
-    }
-
-    let table_css = r#"
-    .notification-pricing-table {
-        margin-top: 1.5rem;
-    }
-    .notification-pricing-table h3 {
-        color: #7EB2FF;
-        font-size: 1.3rem;
-        margin-bottom: 1rem;
-    }
-    .notification-pricing-table table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 1rem 0;
-    }
-    .notification-pricing-table th,
-    .notification-pricing-table td {
-        padding: 0.75rem;
-        text-align: left;
-        border-bottom: 1px solid rgba(30, 144, 255, 0.15);
-    }
-    .notification-pricing-table th {
-        color: #7EB2FF;
-        font-weight: 600;
-    }
-    .notification-pricing-table td {
-        color: #e0e0e0;
-    }
-    .notification-pricing-table tr:hover {
-        background: rgba(30, 144, 255, 0.05);
-    }
-    .formula-note {
-        color: #999;
-        font-size: 0.85rem;
-        margin-top: 1rem;
-        font-style: italic;
-    }
-    "#;
-
-    html! {
-        <div class="notification-pricing-table">
-            <style>{table_css}</style>
-            <h3>{"Country Pricing"}</h3>
-            if *loading {
-                <p>{"Loading prices..."}</p>
-            } else if let Some(data) = (*pricing).as_ref() {
-                <table>
-                    <thead>
-                        <tr>
-                            <th>{"Country"}</th>
-                            <th>{"SMS Price"}</th>
-                            <th>{"Voice (per min)"}</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        { for data.countries.iter().map(|c| html! {
-                            <tr>
-                                <td>{&c.country_name}</td>
-                                <td>{format!("€{:.2}", c.sms_price)}</td>
-                                <td>{format!("€{:.2}", c.voice_price)}</td>
-                            </tr>
-                        })}
-                    </tbody>
-                </table>
-                <p class="formula-note">{&data.formula_note}</p>
-            } else {
-                <p>{"Unable to load pricing"}</p>
-            }
-        </div>
-    }
-}
-
-#[derive(Deserialize, Clone)]
-struct UserProfile {
-    id: i32,
-    email: String,
-    sub_tier: Option<String>,
-    plan_type: Option<String>,
-    phone_number: Option<String>,
-    verified: bool,
-    phone_number_country: Option<String>,
-}
 #[derive(Clone, PartialEq)]
 pub struct Feature {
     pub text: String,
@@ -959,15 +842,6 @@ pub fn guest_checkout_button(props: &GuestCheckoutButtonProps) -> Html {
     }
 }
 
-#[derive(Clone, PartialEq)]
-pub struct Addon {
-    pub id: String,
-    pub name: String,
-    pub price: f64,
-    pub description: String,
-    pub currency: String,
-    pub available: bool,
-}
 #[derive(Properties, PartialEq)]
 pub struct PricingCardProps {
     pub plan_name: String,
