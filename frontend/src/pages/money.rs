@@ -501,8 +501,6 @@ pub struct CheckoutButtonProps {
 #[function_component(CheckoutButton)]
 pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
     let user_id = props.user_id;
-    let _user_email = props.user_email.clone();
-    let subscription_type = props.subscription_type.clone();
     let selected_country = props.selected_country.clone();
     let plan_type = props.plan_type.clone();
 
@@ -511,14 +509,12 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
 
     let onclick = {
         let user_id = user_id.clone();
-        let subscription_type = subscription_type.clone();
         let selected_country = selected_country.clone();
         let plan_type = plan_type.clone();
 
         Callback::from(move |e: MouseEvent| {
             e.prevent_default();
             let user_id = user_id.clone();
-            let subscription_type = subscription_type.clone();
             let selected_country = selected_country.clone();
             let plan_type = plan_type.clone();
 
@@ -536,11 +532,7 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
             wasm_bindgen_futures::spawn_local(async move {
                 let endpoint = format!("/api/stripe/unified-subscription-checkout/{}", user_id);
                 let mut request_body = json!({
-                    "subscription_type": match subscription_type.as_str() {
-                        "hosted" => "Hosted",
-                        "guaranteed" => "Guaranteed",
-                        _ => "Hosted" // Default to Hosted if unknown
-                    },
+                    "subscription_type": "Hosted",
                 });
                 if let Some(pt) = plan_type {
                     request_body["plan_type"] = json!(pt);
@@ -1251,7 +1243,7 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
                             let sub_items = feature.sub_items.iter().map(|sub| html! { <li class="sub-item">{sub}</li> }).collect::<Vec<_>>();
                             vec![main_item].into_iter().chain(sub_items.into_iter())
                         }) }
-                        { if (props.subscription_type == "hosted" || props.subscription_type == "guaranteed") && props.selected_country == "Other" {
+                        { if props.subscription_type == "hosted" && props.selected_country == "Other" {
                             html! { <li>{"Bring your own number. See the guide below."}</li> }
                         } else { html! {} }}
                     </ul>
@@ -1556,18 +1548,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         ("NZ".to_string(), 29.00),
         ("Other".to_string(), 19.00),  // BYOT plan stays at €19
     ]);
-    // Digest plan prices (€49 for euro countries)
-    let guaranteed_prices: HashMap<String, f64> = HashMap::from([
-        ("US".to_string(), 59.00),
-        ("CA".to_string(), 59.00),
-        ("FI".to_string(), 49.00),
-        ("NL".to_string(), 49.00),
-        ("GB".to_string(), 49.00),
-        ("AU".to_string(), 49.00),
-        ("Other".to_string(), 49.00),
-    ]);
     let hosted_total_price = hosted_prices.get(&props.selected_country).unwrap_or(&0.0);
-    let _guaranteed_total_price = guaranteed_prices.get(&props.selected_country).unwrap_or(&0.0);
     let hosted_features = vec![
         Feature {
             text: "Fully managed service hosted in EU".to_string(),
@@ -1588,27 +1569,6 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         Feature {
             text: "7-day one-click refund, no questions asked".to_string(),
             sub_items: vec![],
-        },
-    ];
-    let _guaranteed_features = vec![
-        Feature {
-            text: "Full Hosted Plan".to_string(),
-            sub_items: vec![],
-        },
-        Feature {
-            text: "Password Vault & Cheating Checker".to_string(),
-            sub_items: vec!["Lightfriend password vault for app blockers and physical lock boxes, 60-min relock window or permanent downgrade.".to_string()],
-        },
-        Feature {
-            text: "Free Cold Turkey Blocker Pro".to_string(),
-            sub_items: vec!["Block computer temptations with no escape hatch.".to_string()],
-        },
-        Feature {
-            text: "Optional Signup Bonuses".to_string(),
-            sub_items: vec![
-                "If needed: $20 for $40 Amazon gift card (for a dumbphone if you don't have one).".to_string(),
-                "For smartphone locking: $10 for $20 Amazon gift card (for a smartphone lock box you can close with a password).".to_string(),
-            ],
         },
     ];
     let pricing_css = r#"
@@ -2290,27 +2250,6 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
                         }
                     }
                 }
-                /*
-                <PricingCard
-                    plan_name={"Guaranteed Plan"}
-                    best_for={"Hosted Plan with zero loop holes. Full refund for the first month if not satisfied."}
-                    price={*guaranteed_total_price}
-                    currency={if props.selected_country == "US" || props.selected_country == "CA" { "$" } else { "€" }}
-                    period={"/month"}
-                    features={guaranteed_features.clone()}
-                    subscription_type={"guaranteed"}
-                    is_popular={false}
-                    is_premium={true}
-                    user_id={props.user_id}
-                    user_email={props.user_email.clone()}
-                    is_logged_in={props.is_logged_in}
-                    verified={props.verified}
-                    sub_tier={props.sub_tier.clone()}
-                    selected_country={props.selected_country.clone()}
-                    coming_soon={false}
-                    hosted_prices={hosted_prices.clone()}
-                />
-            */
             </div>
             <FeatureList selected_country={props.selected_country.clone()} />
             <CreditPricing selected_country={props.selected_country.clone()} />

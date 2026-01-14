@@ -147,9 +147,7 @@
       "Bash(uniq*)",
       "Bash(awk*)",
       "Bash(sed*)",
-      "Bash(xargs*)",
-      "Bash(git -C /Users/ahtavarasmus/Developer/sites/lightfriend-cloud log:*)",
-      "Bash(git -C /Users/ahtavarasmus/Developer/sites/lightfriend-cloud show 8a1f0fa -- backend/src/handlers/profile_handlers.rs)"
+      "Bash(xargs*)"
     ],
     "deny": [
       "Read(.env)",

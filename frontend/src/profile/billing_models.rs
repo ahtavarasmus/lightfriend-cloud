@@ -58,8 +58,6 @@ pub struct UserProfile {
 }
 
 pub const MIN_TOPUP_AMOUNT_CREDITS: f32 = 3.00;
-pub const VOICE_SECOND_COST: f32 = 0.0033;
-pub const MESSAGE_COST: f32 = 0.20;
 
 /// Usage projection response - all values in NOTIFICATION UNITS (not currency)
 #[derive(Deserialize, Clone, PartialEq, Debug)]
