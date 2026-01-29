@@ -1,5 +1,4 @@
 # Lightfriend Infrastructure
-# See docs/INFRASTRUCTURE_PLAN.md for architecture details
 # See docs/INFRASTRUCTURE_SETUP.md for setup instructions
 
 terraform {

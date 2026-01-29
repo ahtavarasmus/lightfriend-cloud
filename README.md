@@ -40,7 +40,7 @@ See [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md) for complete setup guide.
 | **Backend** | Rust (Axum) API server | 3000 |
 | **Frontend** | Yew (WebAssembly) UI | 8080 |
 | **Synapse** | Matrix homeserver | 8008 |
-| **Bridges** | WhatsApp, Signal, Messenger, Instagram | - |
+| **Bridges** | WhatsApp, Signal, Messenger, Instagram, Telegram | - |
 | **PostgreSQL** | Database for Synapse and bridges | 5432 |
 
 ### Key Features
@@ -51,6 +51,61 @@ See [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md) for complete setup guide.
 - 📅 **Calendar & Tasks**: Google Calendar/Tasks integration
 - 💳 **Payments**: Stripe integration for subscriptions
 - 🔐 **Security**: AES-256-GCM encryption, JWT auth, webhook validation
+
+---
+
+## Deployment Models
+
+Lightfriend supports two deployment models for different use cases:
+
+| Model | Use Case | Privacy | Complexity |
+|-------|----------|---------|------------|
+| **Docker Compose** | Local dev, standard self-hosting | Standard | Simple |
+| **Nitro Enclave** | Privacy-preserving production | Developer cannot see user data | Advanced |
+
+### Docker Compose (Multi-Container)
+
+The default deployment uses separate containers for each service:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Docker Network                                         │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐   │
+│  │ Core     │ │ Synapse  │ │ Postgres │ │ Bridges  │   │
+│  │ (Rust)   │ │ (Matrix) │ │          │ │ (5x)     │   │
+│  └──────────┘ └──────────┘ └──────────┘ └──────────┘   │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Best for:** Local development, self-hosting where you control the server.
+
+### Nitro Enclave (Single-Container)
+
+For privacy-preserving production, everything runs in an AWS Nitro Enclave:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  ENCLAVE (single container, isolated from host)         │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ s6-overlay (process supervisor)                  │   │
+│  │  ├── vsock-proxy (VSOCK ↔ TCP)                   │   │
+│  │  ├── postgresql (ephemeral)                      │   │
+│  │  ├── mautrix-whatsapp, signal, messenger,        │   │
+│  │  │   instagram, telegram                         │   │
+│  │  └── lightfriend-core                            │   │
+│  └─────────────────────────────────────────────────┘   │
+│  Communication: VSOCK only | Storage: Ephemeral         │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Best for:** Production SaaS where users need cryptographic guarantees that the developer cannot access their messages or credentials.
+
+**Key differences:**
+- All services in one container with s6-overlay process supervision
+- PostgreSQL runs inside enclave on ephemeral storage
+- State persisted to parent instance via VSOCK (encrypted)
+- No network access except through VSOCK proxy to parent
+- Attestation allows clients to verify enclave code
 
 ---
 
@@ -148,6 +203,7 @@ After starting services:
    - Signal: `@signalbot:matrix.local`
    - Messenger: `@messengerbot:matrix.local`
    - Instagram: `@igbot:matrix.local`
+   - Telegram: `@telegrambot:matrix.local`
 5. **Send `login`** to each bot and follow instructions
 
 See [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md) for detailed bridge setup.
@@ -246,7 +302,39 @@ See [docs/DOCKER_SETUP.md](docs/DOCKER_SETUP.md) for backup commands and automat
 
 For production/staging deployment to AWS with Cloudflare Zero Trust:
 
-- **[docs/INFRASTRUCTURE_SETUP.md](docs/INFRASTRUCTURE_SETUP.md)** - Complete Terraform setup guide for AWS + Cloudflare
+### Standard Deployment (Docker Compose on EC2)
+
+Deploy the multi-container setup to a standard EC2 instance:
+
+```bash
+# On EC2 instance
+git clone <repo>
+cd lightfriend-cloud
+cp .env.example .env
+# Configure .env
+just build-prebuilt && just up
+```
+
+### Privacy-Preserving Deployment (Nitro Enclave)
+
+Deploy to AWS Nitro Enclave for cryptographic privacy guarantees:
+
+```bash
+# Build the enclave image
+cd docker/enclave
+./build-eif.sh
+
+# On Nitro-enabled EC2 instance
+nitro-cli run-enclave \
+  --eif-path lightfriend-enclave.eif \
+  --cpu-count 2 \
+  --memory 4096 \
+  --enclave-cid 16
+```
+
+### Infrastructure Documentation
+
+- **[docs/INFRASTRUCTURE_SETUP.md](docs/INFRASTRUCTURE_SETUP.md)** - Terraform setup for AWS + Cloudflare
 
 The infrastructure includes:
 - EC2 instances with Nitro Enclave support

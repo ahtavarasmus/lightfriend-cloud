@@ -2,8 +2,6 @@
 
 This guide walks contributors through setting up their own Lightfriend infrastructure environment. Each contributor can have their own isolated environment via Terraform workspaces.
 
-See [INFRASTRUCTURE_PLAN.md](./INFRASTRUCTURE_PLAN.md) for architecture details and design decisions.
-
 ## Prerequisites
 
 - AWS account with billing enabled
@@ -469,9 +467,80 @@ The `<environment>` matches your workspace's `environment` variable (e.g., `dev-
 
 **Note**: Terraform outputs will show your specific URLs after `terraform apply` completes.
 
-## 6. Teardown
+## 6. Deploying the Enclave
 
-To destroy your development environment:
+After infrastructure is provisioned, deploy the Lightfriend enclave image.
+
+### 6.1 Build the Enclave Image
+
+On your local machine (or CI):
+
+```bash
+cd docker/enclave
+
+# Build Docker image and EIF (requires nitro-cli on EC2)
+./build-eif.sh
+```
+
+If building locally without `nitro-cli`, the script builds the Docker image only. Transfer it to EC2 and build the EIF there:
+
+```bash
+# Local: Build and push Docker image
+docker build -t lightfriend-enclave:latest -f docker/enclave/Dockerfile .
+docker tag lightfriend-enclave:latest <your-registry>/lightfriend-enclave:latest
+docker push <your-registry>/lightfriend-enclave:latest
+
+# On EC2: Pull and build EIF
+docker pull <your-registry>/lightfriend-enclave:latest
+nitro-cli build-enclave \
+  --docker-uri lightfriend-enclave:latest \
+  --output-file lightfriend-enclave.eif
+```
+
+### 6.2 Run the Enclave
+
+```bash
+# Start the enclave
+nitro-cli run-enclave \
+  --eif-path lightfriend-enclave.eif \
+  --cpu-count 2 \
+  --memory 4096 \
+  --enclave-cid 16
+
+# Check enclave status
+nitro-cli describe-enclaves
+```
+
+### 6.3 PCR Values for Attestation
+
+The `nitro-cli build-enclave` command outputs PCR (Platform Configuration Register) values:
+
+```
+PCR0: <hash of enclave image>
+PCR1: <hash of Linux kernel>
+PCR2: <hash of application>
+```
+
+**Save these values!** They're used by the frontend to verify it's talking to the correct enclave code. Publish them alongside each release.
+
+### 6.4 Parent Instance Services
+
+The parent EC2 instance runs services that communicate with the enclave via VSOCK:
+
+| Service | VSOCK Port | Purpose |
+|---------|------------|---------|
+| Synapse proxy | 5000 | Matrix homeserver |
+| Internet proxy | 5001 | Outbound HTTP/HTTPS |
+| State sync | 5002 | Encrypted state persistence |
+| Attestation | 5003 | Attestation document serving |
+
+These are set up by the Terraform compute module's user_data script.
+
+---
+
+## 7. Teardown
+
+To destroy your development environment (does not affect enclave images):
 
 ```bash
 cd terraform
