@@ -1,0 +1,12 @@
+#!/command/execlineb -P
+# PostgreSQL service for enclave
+# Runs on ephemeral storage, state persisted via VSOCK
+
+fdmove -c 2 1
+
+# Initialize database if needed
+if { /usr/local/bin/init-postgresql.sh }
+
+# Run PostgreSQL as postgres user
+s6-setuidgid postgres
+/usr/lib/postgresql/15/bin/postgres -D /var/lib/postgresql/15/main -c config_file=/etc/lightfriend/config/postgresql.conf

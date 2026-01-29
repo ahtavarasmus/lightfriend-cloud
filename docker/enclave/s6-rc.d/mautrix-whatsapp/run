@@ -1,0 +1,9 @@
+#!/command/execlineb -P
+# mautrix-whatsapp bridge service
+
+fdmove -c 2 1
+
+# Wait for PostgreSQL to be ready
+if { /usr/local/bin/wait-for-postgres.sh }
+
+/usr/bin/mautrix-whatsapp -c /data/bridges/whatsapp/config.yaml

@@ -1,0 +1,50 @@
+# WhatsApp bridge configuration for Enclave
+# Connects to Synapse via VSOCK proxy
+
+homeserver:
+    address: http://127.0.0.1:${VSOCK_SYNAPSE_PORT}
+    domain: ${MATRIX_DOMAIN}
+
+appservice:
+    address: http://127.0.0.1:29318
+    hostname: 127.0.0.1
+    port: 29318
+    id: whatsapp
+    bot:
+        username: whatsappbot
+        displayname: WhatsApp Bridge
+    ephemeral_events: true
+
+database:
+    type: postgres
+    uri: postgres://whatsapp_user:whatsapp_password@localhost:5432/whatsapp_db?sslmode=disable
+
+bridge:
+    username_template: whatsapp_{{.}}
+    displayname_template: "{{if .BusinessName}}{{.BusinessName}}{{else if .PushName}}{{.PushName}}{{else}}{{.JID}}{{end}} (WA)"
+    permissions:
+        "*": user
+        "${MATRIX_DOMAIN}": user
+
+encryption:
+    allow: true
+    default: true
+    appservice: false
+    require: false
+    allow_key_sharing: true
+    verification_levels:
+        receive: unverified
+        send: unverified
+        share: cross-signed-tofu
+
+double_puppet:
+    servers:
+        ${MATRIX_DOMAIN}: "${DOUBLE_PUPPET_SECRET}"
+    secrets:
+        ${MATRIX_DOMAIN}: as_token:${DOUBLE_PUPPET_SECRET}
+
+logging:
+    min_level: info
+    writers:
+    - type: stdout
+      format: pretty-colored

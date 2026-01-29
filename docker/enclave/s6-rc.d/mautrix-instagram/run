@@ -1,0 +1,9 @@
+#!/command/execlineb -P
+# mautrix-instagram bridge service (mautrix-meta)
+
+fdmove -c 2 1
+
+# Wait for PostgreSQL to be ready
+if { /usr/local/bin/wait-for-postgres.sh }
+
+/usr/bin/mautrix-meta -c /data/bridges/instagram/config.yaml

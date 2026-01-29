@@ -1,0 +1,53 @@
+# Instagram bridge configuration for Enclave (mautrix-meta)
+# Connects to Synapse via VSOCK proxy
+
+homeserver:
+    address: http://127.0.0.1:${VSOCK_SYNAPSE_PORT}
+    domain: ${MATRIX_DOMAIN}
+
+appservice:
+    address: http://127.0.0.1:29330
+    hostname: 127.0.0.1
+    port: 29330
+    id: instagram
+    bot:
+        username: igbot
+        displayname: Instagram Bridge
+    ephemeral_events: true
+
+database:
+    type: postgres
+    uri: postgres://instagram_user:instagram_password@localhost:5432/instagram_db?sslmode=disable
+
+meta:
+    mode: instagram
+
+bridge:
+    username_template: instagram_{{.}}
+    displayname_template: "{{.DisplayName}} (IG)"
+    permissions:
+        "*": user
+        "${MATRIX_DOMAIN}": user
+
+encryption:
+    allow: true
+    default: true
+    appservice: false
+    require: false
+    allow_key_sharing: true
+    verification_levels:
+        receive: unverified
+        send: unverified
+        share: cross-signed-tofu
+
+double_puppet:
+    servers:
+        ${MATRIX_DOMAIN}: "${DOUBLE_PUPPET_SECRET}"
+    secrets:
+        ${MATRIX_DOMAIN}: as_token:${DOUBLE_PUPPET_SECRET}
+
+logging:
+    min_level: info
+    writers:
+    - type: stdout
+      format: pretty-colored

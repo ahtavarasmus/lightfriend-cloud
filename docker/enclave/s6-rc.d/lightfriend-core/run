@@ -1,0 +1,12 @@
+#!/command/execlineb -P
+# Lightfriend Core service
+
+fdmove -c 2 1
+
+# Run migrations first
+if { /app/diesel migration run --database-url /app/data/database.db }
+
+# Restore state from parent if available
+if { /usr/local/bin/restore-pg-state.sh }
+
+/app/backend

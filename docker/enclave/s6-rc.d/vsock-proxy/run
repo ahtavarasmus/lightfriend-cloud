@@ -1,0 +1,6 @@
+#!/command/execlineb -P
+# VSOCK proxy service
+# Proxies TCP connections over VSOCK to parent instance
+
+fdmove -c 2 1
+/usr/local/bin/vsock-proxy.sh

@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Nitro Enclave Dockerfile with multi-stage build for AWS deployment
+  - Single container with s6-overlay process supervisor
+  - Lightfriend Core + 5 mautrix bridges (WhatsApp, Signal, Messenger, Instagram, Telegram)
+  - PostgreSQL 15 running in-enclave on ephemeral storage
+  - VSOCK proxy for communication with parent instance
+  - State persistence via snapshot/restore scripts
+  - EIF build script for Nitro Enclave image creation
 - Comprehensive Claude Code permissions configuration (`.claude/settings.local.json`)
 - Development workflow skills for common tasks:
   - `lightfriend-db-migration` - Diesel migration workflow guide

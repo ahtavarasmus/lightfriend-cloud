@@ -1,0 +1,9 @@
+#!/command/execlineb -P
+# mautrix-signal bridge service (v2 native, no signald)
+
+fdmove -c 2 1
+
+# Wait for PostgreSQL to be ready
+if { /usr/local/bin/wait-for-postgres.sh }
+
+/usr/bin/mautrix-signal -c /data/bridges/signal/config.yaml
