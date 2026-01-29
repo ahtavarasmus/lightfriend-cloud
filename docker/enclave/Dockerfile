@@ -125,6 +125,9 @@ FROM dock.mau.dev/mautrix/telegram:latest AS telegram-bridge
 # =============================================================================
 FROM debian:bookworm-slim AS runtime
 
+# Install xz-utils first (needed to extract s6-overlay)
+RUN apt-get update && apt-get install -y xz-utils && rm -rf /var/lib/apt/lists/*
+
 # Install s6-overlay
 ARG S6_OVERLAY_VERSION=3.1.6.2
 ADD https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp
@@ -154,8 +157,11 @@ RUN apt-get update && apt-get install -y \
     gettext-base \
     && rm -rf /var/lib/apt/lists/*
 
-# Install PySocks for Telegram proxy support
-RUN pip3 install --break-system-packages PySocks
+# Install Python dependencies for Telegram bridge
+# mautrix-telegram is Python-based (unlike other bridges which are Go binaries)
+RUN pip3 install --break-system-packages \
+    PySocks \
+    mautrix-telegram
 
 # Create directories
 RUN mkdir -p \
@@ -183,7 +189,15 @@ COPY backend/diesel.toml /app/
 COPY --from=whatsapp-bridge /usr/bin/mautrix-whatsapp /usr/bin/mautrix-whatsapp
 COPY --from=signal-bridge /usr/bin/mautrix-signal /usr/bin/mautrix-signal
 COPY --from=meta-bridge /usr/bin/mautrix-meta /usr/bin/mautrix-meta
-COPY --from=telegram-bridge /usr/bin/mautrix-telegram /usr/bin/mautrix-telegram
+
+# Copy Telegram bridge (Python-based, needs packages + wrapper)
+COPY --from=telegram-bridge /usr/lib/python3.12/site-packages/mautrix /usr/lib/python3/dist-packages/mautrix
+COPY --from=telegram-bridge /usr/lib/python3.12/site-packages/mautrix_telegram /usr/lib/python3/dist-packages/mautrix_telegram
+COPY --from=telegram-bridge /usr/lib/python3.12/site-packages/telethon /usr/lib/python3/dist-packages/telethon
+
+# Create wrapper script to make telegram bridge look like a binary
+RUN echo '#!/bin/sh\nexec python3 -m mautrix_telegram "$@"' > /usr/bin/mautrix-telegram && \
+    chmod +x /usr/bin/mautrix-telegram
 
 # Copy s6 service definitions
 COPY docker/enclave/s6-rc.d /etc/s6-overlay/s6-rc.d
