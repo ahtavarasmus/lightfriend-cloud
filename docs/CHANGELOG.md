@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - VSOCK proxy for communication with parent instance
   - State persistence via snapshot/restore scripts
   - EIF build script for Nitro Enclave image creation
+  - Dual build modes: source build (reproducible) or pre-built image (fast testing)
 - Comprehensive Claude Code permissions configuration (`.claude/settings.local.json`)
 - Development workflow skills for common tasks:
   - `lightfriend-db-migration` - Diesel migration workflow guide

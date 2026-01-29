@@ -3,32 +3,53 @@
 #
 # Prerequisites:
 # - Docker
-# - nitro-cli (from amazon-linux-extras)
+# - nitro-cli (from amazon-linux-extras, only needed for EIF conversion)
 #
-# Usage: ./build-eif.sh [tag]
+# Usage:
+#   ./build-eif.sh [tag]                           # Build from source (default)
+#   ./build-eif.sh [tag] prebuilt                  # Use pre-built image (fast)
+#   ./build-eif.sh [tag] prebuilt master-abc123    # Use specific pre-built tag
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 TAG="${1:-latest}"
+BUILD_MODE="${2:-source}"
+CORE_IMAGE_TAG="${3:-latest}"
 
 IMAGE_NAME="lightfriend-enclave"
 EIF_NAME="lightfriend-enclave.eif"
+CORE_IMAGE="ahtavarasmus/lightfriend-core:${CORE_IMAGE_TAG}"
 
 echo "=========================================="
 echo "Building Lightfriend Enclave Image"
 echo "=========================================="
 echo "Tag: $TAG"
+echo "Build mode: $BUILD_MODE"
+if [ "$BUILD_MODE" = "prebuilt" ]; then
+    echo "Core image: $CORE_IMAGE"
+fi
 echo "Project root: $PROJECT_ROOT"
 echo ""
 
 # Step 1: Build the Docker image
 echo "Step 1: Building Docker image..."
-docker build \
-    -t "${IMAGE_NAME}:${TAG}" \
-    -f "$SCRIPT_DIR/Dockerfile" \
-    "$PROJECT_ROOT"
+if [ "$BUILD_MODE" = "prebuilt" ]; then
+    echo "Using pre-built core image (fast build)..."
+    docker build \
+        -t "${IMAGE_NAME}:${TAG}" \
+        -f "$SCRIPT_DIR/Dockerfile" \
+        --build-arg CORE_BINARY_SOURCE=prebuilt \
+        --build-arg CORE_IMAGE="$CORE_IMAGE" \
+        "$PROJECT_ROOT"
+else
+    echo "Building from source (slow, ~15-20 min)..."
+    docker build \
+        -t "${IMAGE_NAME}:${TAG}" \
+        -f "$SCRIPT_DIR/Dockerfile" \
+        "$PROJECT_ROOT"
+fi
 
 echo ""
 echo "Docker image built: ${IMAGE_NAME}:${TAG}"

@@ -4,9 +4,22 @@
 # Multi-stage build for AWS Nitro Enclave deployment
 # Contains: Lightfriend Core + 5 mautrix bridges + PostgreSQL + s6-overlay
 #
+# Build modes:
+#   Source (default): Builds Core from Rust source
+#     docker build -f docker/enclave/Dockerfile .
+#
+#   Prebuilt (fast): Uses pre-built image from Docker Hub
+#     docker build -f docker/enclave/Dockerfile \
+#       --build-arg CORE_BINARY_SOURCE=prebuilt \
+#       --build-arg CORE_IMAGE=ahtavarasmus/lightfriend-core:latest .
+#
+
+# Build configuration
+ARG CORE_BINARY_SOURCE=build
+ARG CORE_IMAGE=ahtavarasmus/lightfriend-core:latest
 
 # =============================================================================
-# STAGE 1: Build Lightfriend Core (reuses pattern from docker/core/Dockerfile)
+# STAGE 1: Build Lightfriend Core from source (default)
 # =============================================================================
 FROM rust:1.86-bookworm AS backend-builder
 
@@ -77,6 +90,29 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     strip /backend
 
 # =============================================================================
+# STAGE 1b: Pre-built Core alternative (optional)
+# =============================================================================
+FROM ${CORE_IMAGE} AS prebuilt-core
+
+# =============================================================================
+# STAGE 1c: Normalize binary location (unified interface)
+# =============================================================================
+# Create intermediate stages that expose the binary at /binary
+# This allows the final stage to copy from either source consistently
+
+FROM alpine:latest AS extractor-build
+COPY --from=builder /backend /binary
+COPY --from=builder /usr/local/cargo/bin/diesel /diesel
+
+FROM alpine:latest AS extractor-prebuilt
+COPY --from=prebuilt-core /app/backend /binary
+COPY --from=prebuilt-core /app/diesel /diesel
+
+# Select which extractor to use based on CORE_BINARY_SOURCE arg
+# Resolves to either "extractor-build" or "extractor-prebuilt"
+FROM extractor-${CORE_BINARY_SOURCE} AS core-binary
+
+# =============================================================================
 # STAGE 2: Extract bridge binaries from official mautrix images
 # =============================================================================
 FROM dock.mau.dev/mautrix/whatsapp:latest AS whatsapp-bridge
@@ -135,9 +171,9 @@ RUN mkdir -p \
     /run/postgresql \
     /var/lib/postgresql/15/main
 
-# Copy Lightfriend Core binary and diesel
-COPY --from=builder /backend /app/backend
-COPY --from=builder /usr/local/cargo/bin/diesel /app/diesel
+# Copy Lightfriend Core binary and diesel (from either build or prebuilt source)
+COPY --from=core-binary /binary /app/backend
+COPY --from=core-binary /diesel /app/diesel
 
 # Copy migrations
 COPY backend/migrations /app/migrations
