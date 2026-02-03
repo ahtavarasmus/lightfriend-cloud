@@ -1740,10 +1740,16 @@ impl UserRepository {
 
     pub fn create_bridge(&self, new_bridge: NewBridge) -> Result<(), DieselError> {
         use crate::schema::bridges;
+        use crate::schema::users;
         let mut conn = self.pool.get().expect("Failed to get DB connection");
 
         diesel::insert_into(bridges::table)
             .values(&new_bridge)
+            .execute(&mut conn)?;
+
+        // Mark user as migrated when they connect a bridge
+        diesel::update(users::table.filter(users::id.eq(new_bridge.user_id)))
+            .set(users::migrated_to_new_server.eq(true))
             .execute(&mut conn)?;
 
         Ok(())
@@ -2108,5 +2114,51 @@ impl UserRepository {
 
         println!("Successfully created google calendar connection");
         Ok(())
+    }
+
+    // === Backup tracking methods ===
+
+    /// Set the backup_session_active flag for a user
+    pub fn set_backup_session_active(&self, user_id: i32, active: bool) -> Result<(), DieselError> {
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        diesel::update(users::table.find(user_id))
+            .set(users::backup_session_active.eq(active))
+            .execute(&mut conn)?;
+
+        tracing::debug!("Set backup_session_active={} for user {}", active, user_id);
+        Ok(())
+    }
+
+    /// Get the last backup timestamp for a user
+    pub fn get_last_backup_at(&self, user_id: i32) -> Result<Option<i32>, DieselError> {
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        users::table
+            .find(user_id)
+            .select(users::last_backup_at)
+            .first(&mut conn)
+    }
+
+    /// Update the last backup timestamp for a user
+    pub fn set_last_backup_at(&self, user_id: i32, timestamp: i32) -> Result<(), DieselError> {
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        diesel::update(users::table.find(user_id))
+            .set(users::last_backup_at.eq(Some(timestamp)))
+            .execute(&mut conn)?;
+
+        tracing::debug!("Updated last_backup_at for user {}", user_id);
+        Ok(())
+    }
+
+    /// Get all users with active backup sessions
+    pub fn get_users_with_active_backup_sessions(&self) -> Result<Vec<i32>, DieselError> {
+        let mut conn = self.pool.get().expect("Failed to get DB connection");
+
+        users::table
+            .filter(users::backup_session_active.eq(true))
+            .select(users::id)
+            .load(&mut conn)
     }
 }
