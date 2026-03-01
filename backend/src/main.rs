@@ -22,9 +22,9 @@ use tracing::Level;
 // Import modules and types from library crate
 use api::{elevenlabs, elevenlabs_webhook, twilio_sms};
 use backend::{
-    api, handlers, jobs, utils, AdminAlertRepository, AiConfig, AppState,
+    api, handlers, jobs, utils, AdminAlertRepository, AiConfig, AppState, ItemRepository,
     SqliteConnectionCustomizer, TotpRepository, UserCore, UserCoreOps, UserRepository,
-    WebauthnRepository,
+    WebauthnRepository, WellbeingRepository,
 };
 use handlers::{
     admin_handlers, auth_handlers, billing_handlers, bridge_auth_common, contact_profile_handlers,
@@ -32,7 +32,7 @@ use handlers::{
     imap_handlers, instagram_auth, instagram_handlers, messenger_auth, messenger_handlers,
     profile_handlers, refund_handlers, self_host_handlers, signal_auth, signal_handlers,
     stripe_handlers, telegram_auth, telegram_handlers, tesla_auth, twilio_handlers, uber_auth,
-    whatsapp_auth, whatsapp_handlers, youtube, youtube_auth,
+    wellbeing_handlers, whatsapp_auth, whatsapp_handlers, youtube, youtube_auth,
 };
 
 async fn health_check() -> &'static str {
@@ -219,10 +219,12 @@ async fn main() {
     }
 
     let user_repository = Arc::new(UserRepository::new(pool.clone()));
+    let item_repository = Arc::new(ItemRepository::new(pool.clone()));
     let totp_repository = Arc::new(TotpRepository::new(pool.clone()));
     let webauthn_repository = Arc::new(WebauthnRepository::new(pool.clone()));
     let admin_alert_repository = Arc::new(AdminAlertRepository::new(pool.clone()));
     let metrics_repository = Arc::new(backend::MetricsRepository::new(pool.clone()));
+    let wellbeing_repository = Arc::new(WellbeingRepository::new(pool.clone()));
     let server_url_oauth =
         std::env::var("SERVER_URL_OAUTH").unwrap_or_else(|_| "http://localhost:3000".to_string());
     let server_url =
@@ -328,6 +330,7 @@ async fn main() {
         db_pool: pool,
         user_core: user_core.clone(),
         user_repository: user_repository.clone(),
+        item_repository,
         twilio_client,
         twilio_message_service,
         ai_config: AiConfig::from_env(),
@@ -349,15 +352,18 @@ async fn main() {
         phone_verify_limiter: DashMap::new(),
         phone_verify_verify_limiter: DashMap::new(),
         pending_message_senders: Arc::new(Mutex::new(HashMap::new())),
+        ws_notification_senders: Arc::new(DashMap::new()),
         totp_repository,
         webauthn_repository,
         admin_alert_repository,
         metrics_repository,
+        wellbeing_repository,
         pending_totp_logins: DashMap::new(),
         pending_password_resets: DashMap::new(),
         session_to_token: DashMap::new(),
         totp_verify_limiter: DashMap::new(),
         webauthn_verify_limiter: DashMap::new(),
+        tool_registry: backend::build_tool_registry(),
     });
     // SMS server route - validates signature using user lookup
     let twilio_sms_routes = Router::new()
@@ -416,13 +422,10 @@ async fn main() {
         )
         .route("/api/call/email/send", post(elevenlabs::handle_email_send))
         .route(
-            "/api/call/task",
-            post(elevenlabs::handle_create_task_tool_call),
+            "/api/call/items/create",
+            post(elevenlabs::handle_create_item_voice),
         )
-        .route(
-            "/api/call/monitoring-status",
-            post(elevenlabs::handle_update_monitoring_status_tool_call),
-        )
+        .route("/api/call/items", get(elevenlabs::handle_fetch_items_voice))
         .route(
             "/api/call/cancel-message",
             get(elevenlabs::handle_cancel_pending_message_tool_call),
@@ -551,7 +554,6 @@ async fn main() {
         );
     // Admin routes that need admin authentication
     let admin_routes = Router::new()
-        .route("/testing", post(auth_handlers::testing_handler))
         .route("/api/admin/users", get(auth_handlers::get_users))
         .route(
             "/api/admin/verify/{user_id}",
@@ -639,10 +641,6 @@ async fn main() {
         .route(
             "/api/admin/alerts/enable/{alert_type}",
             post(admin_handlers::enable_alert_type),
-        )
-        .route(
-            "/api/admin/dashboard/triage/{item_type}/{id}",
-            delete(handlers::dashboard_handlers::dismiss_triage_item),
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),
@@ -771,10 +769,6 @@ async fn main() {
         )
         .route(
             "/api/profile/proactive-agent",
-            post(profile_handlers::update_proactive_agent_on),
-        )
-        .route(
-            "/api/profile/proactive-agent",
             get(profile_handlers::get_proactive_agent_on),
         )
         .route(
@@ -786,10 +780,22 @@ async fn main() {
             post(profile_handlers::set_quiet_mode),
         )
         .route(
+            "/api/profile/quiet-rules",
+            post(profile_handlers::add_quiet_rule),
+        )
+        .route(
+            "/api/profile/quiet-rules",
+            delete(profile_handlers::delete_quiet_rules),
+        )
+        .route(
             "/api/profile/get_nearby_places",
             get(profile_handlers::get_nearby_places),
         )
         .route("/api/chat/web", post(profile_handlers::web_chat))
+        .route(
+            "/api/chat/web-stream",
+            get(profile_handlers::web_chat_stream),
+        )
         .route(
             "/api/chat/web-with-image",
             post(profile_handlers::web_chat_with_image),
@@ -1177,26 +1183,10 @@ async fn main() {
             "/api/auth/matrix/reset",
             delete(bridge_auth_common::reset_matrix_connection),
         )
-        // Task routes (reminders and message monitoring)
+        // Item edit with AI
         .route(
-            "/api/filters/tasks",
-            get(filter_handlers::get_tasks).post(filter_handlers::create_task),
-        )
-        .route(
-            "/api/filters/task/{task_id}",
-            delete(filter_handlers::cancel_task),
-        )
-        .route(
-            "/api/filters/task/{task_id}/permanence",
-            patch(filter_handlers::set_task_permanence),
-        )
-        .route(
-            "/api/tasks/{task_id}/edit-ai",
-            post(filter_handlers::edit_task_with_ai),
-        )
-        .route(
-            "/api/tasks/{task_id}",
-            get(filter_handlers::get_task).delete(filter_handlers::cancel_task),
+            "/api/items/{id}/edit-ai",
+            post(filter_handlers::edit_item_with_ai),
         )
         .route(
             "/api/filters/monitored-contacts",
@@ -1235,19 +1225,15 @@ async fn main() {
             "/api/dashboard/summary",
             get(dashboard_handlers::get_dashboard_summary),
         )
-        // Triage routes
-        .route("/api/triage", get(dashboard_handlers::get_triage_items))
+        // Item routes
+        .route("/api/items", get(dashboard_handlers::get_items))
         .route(
-            "/api/triage/{id}/execute",
-            post(dashboard_handlers::execute_triage_item),
+            "/api/items/{id}/snooze",
+            post(dashboard_handlers::snooze_item),
         )
         .route(
-            "/api/triage/{id}/snooze",
-            post(dashboard_handlers::snooze_triage_item),
-        )
-        .route(
-            "/api/triage/{id}",
-            delete(dashboard_handlers::dismiss_triage_item_by_id),
+            "/api/items/{id}",
+            get(dashboard_handlers::get_item_detail).delete(dashboard_handlers::dismiss_item),
         )
         // Contact Profiles routes
         .route(
@@ -1320,11 +1306,37 @@ async fn main() {
             "/api/mcp/test",
             post(handlers::mcp_handlers::test_url_connection),
         )
+        // Wellbeing routes
+        .route(
+            "/api/wellbeing/dumbphone",
+            get(wellbeing_handlers::get_dumbphone).post(wellbeing_handlers::set_dumbphone),
+        )
+        .route(
+            "/api/wellbeing/checkin/today",
+            get(wellbeing_handlers::get_today_checkin),
+        )
+        .route(
+            "/api/wellbeing/checkin",
+            post(wellbeing_handlers::create_checkin),
+        )
+        .route(
+            "/api/wellbeing/checkin/history",
+            get(wellbeing_handlers::get_checkin_history),
+        )
+        .route(
+            "/api/wellbeing/calmer",
+            get(wellbeing_handlers::get_calmer).post(wellbeing_handlers::set_calmer),
+        )
+        .route("/api/wellbeing/points", get(wellbeing_handlers::get_points))
+        .route("/api/wellbeing/stats", get(wellbeing_handlers::get_stats))
         .route_layer(middleware::from_fn(handlers::auth_middleware::require_auth));
+    // WebSocket route - auth handled by AuthUser extractor (reads cookie)
+    let ws_routes = Router::new().route("/api/ws", get(handlers::ws_handler::ws_handler));
     let app = Router::new()
         .merge(public_routes)
         .merge(admin_routes)
         .merge(protected_routes)
+        .merge(ws_routes)
         .merge(auth_built_in_webhook_routes)
         .route(
             "/.well-known/appspecific/com.tesla.3p.public-key.pem",
@@ -1336,14 +1348,42 @@ async fn main() {
         .merge(elevenlabs_free_routes)
         .merge(elevenlabs_webhook_routes)
         .nest_service("/uploads", ServeDir::new("uploads"))
-        // Serve static files (robots.txt, sitemap.xml) at the root
+        // Serve static SEO files at root
+        .nest_service(
+            "/robots.txt",
+            tower_http::services::ServeFile::new("static/robots.txt"),
+        )
+        .nest_service(
+            "/sitemap.xml",
+            tower_http::services::ServeFile::new("static/sitemap.xml"),
+        )
+        .nest_service(
+            "/llms.txt",
+            tower_http::services::ServeFile::new("static/llms.txt"),
+        )
+        .nest_service(
+            "/llms-full.txt",
+            tower_http::services::ServeFile::new("static/llms-full.txt"),
+        )
+        .nest_service(
+            "/.well-known/llms.txt",
+            tower_http::services::ServeFile::new("static/llms.txt"),
+        )
         .layer(session_layer)
         .layer(
             TraceLayer::new_for_http()
                 .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
                 .on_response(DefaultOnResponse::new().level(Level::INFO)),
         )
-        .layer(
+        .layer({
+            let frontend_url: HeaderValue = std::env::var("FRONTEND_URL")
+                .unwrap_or_else(|_| "http://localhost:8080".to_string())
+                .parse()
+                .expect("Invalid FRONTEND_URL");
+            let tauri_origins: Vec<HeaderValue> = vec![
+                "tauri://localhost".parse().unwrap(),
+                "https://tauri.localhost".parse().unwrap(),
+            ];
             CorsLayer::new()
                 .allow_methods([
                     axum::http::Method::GET,
@@ -1353,12 +1393,9 @@ async fn main() {
                     axum::http::Method::PATCH,
                     axum::http::Method::PUT,
                 ])
-                .allow_origin(AllowOrigin::exact(
-                    std::env::var("FRONTEND_URL")
-                        .unwrap_or_else(|_| "http://localhost:8080".to_string())
-                        .parse()
-                        .expect("Invalid FRONTEND_URL"),
-                )) // Restrict in production
+                .allow_origin(AllowOrigin::predicate(move |origin, _| {
+                    origin == frontend_url || tauri_origins.iter().any(|t| origin == t)
+                }))
                 .allow_headers([
                     axum::http::header::CONTENT_TYPE,
                     axum::http::header::AUTHORIZATION,
@@ -1369,8 +1406,8 @@ async fn main() {
                     axum::http::header::CONTENT_TYPE,
                     axum::http::header::CONTENT_LENGTH,
                 ])
-                .allow_credentials(true),
-        )
+                .allow_credentials(true)
+        })
         // Security headers to prevent clickjacking, XSS, and other attacks
         .layer(SetResponseHeaderLayer::overriding(
             axum::http::header::X_FRAME_OPTIONS,

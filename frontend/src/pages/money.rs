@@ -131,21 +131,21 @@ pub fn message_equivalent_display(props: &MessageEquivalentProps) -> Html {
     .message-equivalent {
         cursor: pointer;
         padding: 0.5rem 0.75rem;
-        background: rgba(30, 144, 255, 0.1);
-        border: 1px solid rgba(30, 144, 255, 0.3);
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 8px;
         transition: all 0.2s ease;
         text-align: center;
         user-select: none;
     }
     .message-equivalent:hover {
-        background: rgba(30, 144, 255, 0.2);
-        border-color: rgba(30, 144, 255, 0.5);
+        background: rgba(255, 255, 255, 0.15);
+        border-color: rgba(255, 255, 255, 0.3);
     }
     .message-equivalent .value {
         font-size: 1.1rem;
         font-weight: 600;
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
     }
     .message-equivalent .hint {
         font-size: 0.75rem;
@@ -247,14 +247,14 @@ pub fn byot_pricing_display() -> Html {
 
     let css = r#"
     .byot-pricing {
-        background: rgba(30, 144, 255, 0.05);
-        border: 1px solid rgba(30, 144, 255, 0.2);
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.15);
         border-radius: 12px;
         padding: 1rem;
         margin: 1rem 0;
     }
     .byot-pricing h4 {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 1rem;
         margin: 0 0 0.75rem 0;
         text-align: center;
@@ -274,19 +274,19 @@ pub fn byot_pricing_display() -> Html {
         color: #b0b0b0;
     }
     .byot-pricing-item .value {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-weight: 500;
     }
     .byot-monthly {
         text-align: center;
         padding: 0.5rem;
-        background: rgba(30, 144, 255, 0.1);
+        background: rgba(255, 255, 255, 0.08);
         border-radius: 8px;
         margin-bottom: 0.75rem;
     }
     .byot-monthly .value {
         font-size: 1.1rem;
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-weight: 600;
     }
     .byot-monthly .label {
@@ -308,7 +308,7 @@ pub fn byot_pricing_display() -> Html {
         width: 100%;
         padding: 0.5rem;
         background: rgba(30, 30, 30, 0.9);
-        border: 1px solid rgba(30, 144, 255, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         border-radius: 6px;
         color: #e0e0e0;
         font-size: 0.85rem;
@@ -316,7 +316,7 @@ pub fn byot_pricing_display() -> Html {
     }
     .byot-country-selector select:focus {
         outline: none;
-        border-color: rgba(30, 144, 255, 0.6);
+        border-color: rgba(255, 255, 255, 0.35);
     }
     "#;
 
@@ -523,8 +523,8 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
     };
     let button_css = r#"
     .iq-button {
-        background: linear-gradient(45deg, #1E90FF, #4169E1);
-        color: white;
+        background: linear-gradient(135deg, #d4d4d4, #a8a8a8 30%, #e8e8e8 50%, #a8a8a8 70%, #c0c0c0);
+        color: #1a1a2e;
         border: none;
         padding: 1rem 2rem;
         border-radius: 8px;
@@ -538,8 +538,8 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
     }
     .iq-button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 20px rgba(30, 144, 255, 0.3);
-        background: linear-gradient(45deg, #4169E1, #1E90FF);
+        box-shadow: 0 4px 20px rgba(255, 255, 255, 0.2);
+        background: linear-gradient(135deg, #e0e0e0, #b8b8b8 30%, #f0f0f0 50%, #b8b8b8 70%, #d0d0d0);
     }
     .iq-button.disabled {
         background: rgba(30, 30, 30, 0.5);
@@ -553,14 +553,14 @@ pub fn checkout_button(props: &CheckoutButtonProps) -> Html {
         background: rgba(30, 30, 30, 0.5);
     }
     .iq-button.current-plan {
-        background: rgba(30, 144, 255, 0.3);
-        border: 1px solid rgba(30, 144, 255, 0.5);
+        background: rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.3);
         cursor: default;
     }
     .iq-button.current-plan:hover {
         transform: none;
         box-shadow: none;
-        background: rgba(30, 144, 255, 0.3);
+        background: rgba(255, 255, 255, 0.2);
     }
     .iq-button.coming-soon {
         background: rgba(255, 165, 0, 0.3);
@@ -724,7 +724,7 @@ pub fn guest_checkout_button(props: &GuestCheckoutButtonProps) -> Html {
         width: 18px;
         height: 18px;
         min-width: 18px;
-        border: 2px solid rgba(30, 144, 255, 0.5);
+        border: 2px solid rgba(255, 255, 255, 0.3);
         border-radius: 4px;
         background: rgba(30, 30, 30, 0.7);
         cursor: pointer;
@@ -733,8 +733,8 @@ pub fn guest_checkout_button(props: &GuestCheckoutButtonProps) -> Html {
         transition: all 0.2s ease;
     }
     .terms-checkbox-container input[type="checkbox"]:checked {
-        background: #1E90FF;
-        border-color: #1E90FF;
+        background: rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.8);
     }
     .terms-checkbox-container input[type="checkbox"]:checked::after {
         content: "✓";
@@ -745,14 +745,14 @@ pub fn guest_checkout_button(props: &GuestCheckoutButtonProps) -> Html {
         top: -1px;
     }
     .terms-checkbox-container input[type="checkbox"]:hover {
-        border-color: #1E90FF;
+        border-color: rgba(255, 255, 255, 0.8);
     }
     .terms-checkbox-container a {
-        color: #1E90FF;
+        color: rgba(255, 255, 255, 0.8);
         text-decoration: none;
     }
     .terms-checkbox-container a:hover {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         text-decoration: underline;
     }
     "#;
@@ -865,14 +865,14 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
         margin-bottom: 1rem;
     }
     .learn-more-link {
-        color: #1E90FF;
+        color: rgba(255, 255, 255, 0.8);
         text-decoration: none;
         font-size: 1.1rem;
         font-weight: 500;
         transition: color 0.3s ease;
     }
     .learn-more-link:hover {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         text-decoration: underline;
     }
     .promo-tag {
@@ -899,19 +899,19 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
         transition: color 0.3s ease;
     }
     .signup-notification-link:hover {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         text-decoration: underline;
     }
     .pricing-card {
-        flex: 1;
-        min-width: 0;
-        max-width: 100%;
+        flex: 1 1 350px;
+        min-width: 300px;
+        max-width: 450px;
         background: rgba(30, 30, 30, 0.8);
-        border: 1px solid rgba(30, 144, 255, 0.15);
-        border-radius: 24px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        border-radius: 12px;
         position: relative;
         transition: transform 0.3s ease, box-shadow 0.3s ease;
-        backdrop-filter: blur(10px);
+        backdrop-filter: none;
         box-sizing: border-box;
         display: flex;
         flex-direction: column;
@@ -920,16 +920,16 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
     }
     .pricing-card:hover {
         transform: translateY(-5px);
-        box-shadow: 0 8px 32px rgba(30, 144, 255, 0.2);
-        border-color: rgba(30, 144, 255, 0.4);
+        box-shadow: 0 8px 32px rgba(255, 255, 255, 0.15);
+        border-color: rgba(255, 255, 255, 0.25);
     }
     .pricing-card.popular {
-        background: linear-gradient(180deg, rgba(30, 144, 255, 0.1), rgba(30, 30, 30, 0.9));
-        border: 2px solid #1E90FF;
-        box-shadow: 0 4px 16px rgba(30, 144, 255, 0.3);
+        background: rgba(30, 30, 30, 0.6);
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        box-shadow: 0 4px 16px rgba(255, 255, 255, 0.2);
     }
     .pricing-card.popular:hover {
-        box-shadow: 0 8px 32px rgba(30, 144, 255, 0.4);
+        box-shadow: 0 8px 32px rgba(255, 255, 255, 0.25);
     }
     .pricing-card.premium {
         background: rgba(40, 40, 40, 0.85);
@@ -942,8 +942,8 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
         position: absolute;
         top: -15px;
         right: 20px;
-        background: linear-gradient(45deg, #1E90FF, #4169E1);
-        color: white;
+        background: linear-gradient(135deg, #d4d4d4, #a8a8a8 30%, #e8e8e8 50%, #a8a8a8 70%, #c0c0c0);
+        color: #1a1a2e;
         padding: 0.5rem 1rem;
         border-radius: 20px;
         font-size: 0.9rem;
@@ -963,50 +963,50 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
         z-index: 4;
     }
     .card-header {
-        padding: 1.5rem 2rem;
+        padding: 0.75rem 1rem;
         text-align: center;
-        border-bottom: 1px solid rgba(30, 144, 255, 0.15);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
     }
     .card-header h3 {
-        color: #7EB2FF;
-        font-size: 1.8rem;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 1.1rem;
         margin: 0;
         font-weight: 700;
     }
     .card-content {
-        padding: 1.5rem 2.5rem 2.5rem;
+        padding: 0.75rem 1rem 1rem;
         flex-grow: 1;
         display: flex;
         flex-direction: column;
     }
     .best-for {
         color: #e0e0e0;
-        font-size: 1.1rem;
-        margin-top: 0.5rem;
-        margin-bottom: 1.5rem;
+        font-size: 0.8rem;
+        margin-top: 0.25rem;
+        margin-bottom: 0.5rem;
         font-style: italic;
         text-align: center;
     }
     .price {
-        margin: 1.5rem 0;
+        margin: 0.5rem 0;
         text-align: center;
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 0.5rem;
+        gap: 0.15rem;
     }
     .price .amount {
-        font-size: 3.5rem;
+        font-size: 2rem;
         color: #fff;
         font-weight: 800;
-        background: linear-gradient(45deg, #1E90FF, #7EB2FF);
+        background: linear-gradient(135deg, #d4d4d4, #e8e8e8);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         line-height: 1;
     }
     .price .period {
         color: #999;
-        font-size: 1.2rem;
+        font-size: 0.85rem;
         margin-left: 0.5rem;
     }
     .billing-note {
@@ -1018,7 +1018,7 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
     .us-deal-section {
         margin: 1rem 0;
         text-align: center;
-        background: rgba(30, 144, 255, 0.1);
+        background: rgba(255, 255, 255, 0.08);
         border-radius: 8px;
         padding: 0.5rem;
     }
@@ -1028,7 +1028,7 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
         font-weight: 500;
     }
     .includes {
-        margin-top: 2rem;
+        margin-top: 0.75rem;
     }
     .quota-list {
         list-style: none;
@@ -1037,12 +1037,12 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
     }
     .quota-list li {
         color: #e0e0e0;
-        padding: 0.5rem 0;
-        font-size: 1.1rem;
+        padding: 0.3rem 0;
+        font-size: 0.85rem;
     }
     .quota-list li.sub-item {
-        padding-left: 2rem;
-        font-size: 1rem;
+        padding-left: 1.5rem;
+        font-size: 0.8rem;
         color: #b0b0b0;
         position: relative;
     }
@@ -1050,11 +1050,11 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
         content: "→";
         position: absolute;
         left: 1rem;
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
     }
     .iq-button {
-        background: linear-gradient(45deg, #1E90FF, #4169E1);
-        color: white;
+        background: linear-gradient(135deg, #d4d4d4, #a8a8a8 30%, #e8e8e8 50%, #a8a8a8 70%, #c0c0c0);
+        color: #1a1a2e;
         border: none;
         padding: 1rem 2rem;
         border-radius: 8px;
@@ -1068,8 +1068,8 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
     }
     .iq-button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 20px rgba(30, 144, 255, 0.3);
-        background: linear-gradient(45deg, #4169E1, #1E90FF);
+        box-shadow: 0 4px 20px rgba(255, 255, 255, 0.2);
+        background: linear-gradient(135deg, #e0e0e0, #b8b8b8 30%, #f0f0f0 50%, #b8b8b8 70%, #d0d0d0);
     }
     .iq-button.disabled {
         background: rgba(30, 30, 30, 0.5);
@@ -1081,14 +1081,14 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
         box-shadow: none;
     }
     .iq-button.current-plan {
-        background: rgba(30, 144, 255, 0.3);
-        border: 1px solid rgba(30, 144, 255, 0.5);
+        background: rgba(255, 255, 255, 0.2);
+        border: 1px solid rgba(255, 255, 255, 0.3);
         cursor: default;
     }
     .iq-button.current-plan:hover {
         transform: none;
         box-shadow: none;
-        background: rgba(30, 144, 255, 0.3);
+        background: rgba(255, 255, 255, 0.2);
     }
     .iq-button.coming-soon {
         background: rgba(255, 165, 0, 0.3);
@@ -1126,22 +1126,21 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
         text-align: right;
         color: #e0e0e0;
     }
-    @media (max-width: 968px) {
+    @media (max-width: 640px) {
+        .pricing-grid {
+            flex-wrap: wrap;
+        }
         .pricing-card {
             min-width: 0;
+            max-width: 100%;
             width: 100%;
             padding: 0;
         }
         .card-content {
-            padding: 1rem;
+            padding: 0.75rem;
         }
         .price .amount {
-            font-size: 2.5rem;
-        }
-    }
-    @media (min-width: 969px) {
-        .pricing-card {
-            flex: 0 1 calc(50% - 1rem);
+            font-size: 1.8rem;
         }
     }
 .learn-more-section {
@@ -1150,14 +1149,14 @@ pub fn pricing_card(props: &PricingCardProps) -> Html {
     margin-bottom: 1rem;
 }
 .learn-more-link {
-    color: #1E90FF;
+    color: rgba(255, 255, 255, 0.8);
     text-decoration: none;
     font-size: 1.1rem;
     font-weight: 500;
     transition: color 0.3s ease;
 }
 .learn-more-link:hover {
-    color: #7EB2FF;
+    color: rgba(255, 255, 255, 0.7);
     text-decoration: underline;
 }
     "#;
@@ -1260,14 +1259,14 @@ pub fn credit_pricing(props: &FeatureListProps) -> Html {
         max-width: 1000px;
         margin: 4rem auto;
         background: rgba(30, 30, 30, 0.8);
-        border: 1px solid rgba(30, 144, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 24px;
         padding: 2.5rem;
-        backdrop-filter: blur(10px);
+        backdrop-filter: none;
         text-align: center;
     }
     .credit-pricing h2 {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 2rem;
         margin-bottom: 0.5rem;
     }
@@ -1292,7 +1291,7 @@ pub fn credit_pricing(props: &FeatureListProps) -> Html {
         font-size: 1.1rem;
     }
     .credit-pricing a {
-        color: #1E90FF;
+        color: rgba(255, 255, 255, 0.8);
         text-decoration: none;
     }
     .credit-pricing a:hover {
@@ -1391,10 +1390,10 @@ pub fn credit_pricing(props: &FeatureListProps) -> Html {
 }
 #[function_component(UnifiedPricing)]
 pub fn unified_pricing(props: &PricingProps) -> Html {
-    // Monitor plan prices (€29 for euro countries, $29 for US/CA)
+    // Assistant plan prices (lower tier)
     let hosted_prices: HashMap<String, f64> = HashMap::from([
-        ("US".to_string(), 29.00),
-        ("CA".to_string(), 29.00),
+        ("US".to_string(), 19.00),
+        ("CA".to_string(), 19.00),
         ("FI".to_string(), 29.00),
         ("NL".to_string(), 29.00),
         ("GB".to_string(), 29.00),
@@ -1435,31 +1434,9 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         ("HK".to_string(), 29.00),
         ("TW".to_string(), 29.00),
         ("IL".to_string(), 29.00),
-        ("Other".to_string(), 19.00),  // BYOT plan stays at €19
+        ("Other".to_string(), 19.00),  // BYOT plan stays at 19 EUR
     ]);
-    let hosted_total_price = hosted_prices.get(&props.selected_country).unwrap_or(&0.0);
-    let hosted_features = vec![
-        Feature {
-            text: "Fully managed service hosted in EU".to_string(),
-            sub_items: vec![],
-        },
-        Feature {
-            text: "Simple setup, connect apps and go".to_string(),
-            sub_items: vec![],
-        },
-        Feature {
-            text: "Secure no-logging policy".to_string(),
-            sub_items: vec![],
-        },
-        Feature {
-            text: "All future updates, security, and priority support".to_string(),
-            sub_items: vec![],
-        },
-        Feature {
-            text: "7-day one-click refund, no questions asked".to_string(),
-            sub_items: vec![],
-        },
-    ];
+    let _hosted_total_price = hosted_prices.get(&props.selected_country).unwrap_or(&0.0);
     let pricing_css = r#"
     .subscription-blocked-notice {
         max-width: 800px;
@@ -1483,10 +1460,10 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
     }
     .pricing-grid {
         display: flex;
-        flex-wrap: wrap;
-        gap: 2rem;
+        flex-wrap: nowrap;
+        gap: 1rem;
         justify-content: center;
-        max-width: 1200px;
+        max-width: 1000px;
         margin: 2rem auto;
     }
     .hosted-plans-section, .self-hosted-plans-section {
@@ -1495,7 +1472,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
     }
     .section-title {
         text-align: center;
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 2.5rem;
         margin-bottom: 2rem;
     }
@@ -1514,11 +1491,11 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         left: 0;
         width: 100%;
         height: 100vh;
-        background-image: url('/assets/rain.gif');
+        background-image: url('/assets/stars-bg.jpg');
         background-size: cover;
         background-position: center;
         background-repeat: no-repeat;
-        opacity: 0.8;
+        opacity: 0.6;
         z-index: -2;
         pointer-events: none;
     }
@@ -1544,7 +1521,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
     .pricing-header h1 {
         font-size: 3.5rem;
         margin-bottom: 1.5rem;
-        background: linear-gradient(45deg, #fff, #7EB2FF);
+        background: linear-gradient(45deg, #fff, rgba(255, 255, 255, 0.7));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         font-weight: 700;
@@ -1561,12 +1538,12 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         background: rgba(30, 30, 30, 0.7);
         padding: 1.5rem;
         border-radius: 16px;
-        border: 1px solid rgba(30, 144, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.12);
         max-width: 400px;
         margin: 2rem auto;
     }
     .country-selector label {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         margin-right: 1rem;
         font-size: 1.1rem;
     }
@@ -1574,21 +1551,21 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         padding: 0.8rem;
         font-size: 1rem;
         border-radius: 8px;
-        border: 1px solid rgba(30, 144, 255, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         background: rgba(30, 30, 30, 0.9);
         color: #fff;
         cursor: pointer;
         transition: all 0.3s ease;
     }
     .country-selector select:hover {
-        border-color: rgba(30, 144, 255, 0.5);
+        border-color: rgba(255, 255, 255, 0.3);
     }
     .pricing-faq {
         max-width: 800px;
         margin: 4rem auto;
     }
     .pricing-faq h2 {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 2rem;
         margin-bottom: 2rem;
         text-align: center;
@@ -1599,16 +1576,16 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
     }
     details {
         background: rgba(30, 30, 30, 0.8);
-        border: 1px solid rgba(30, 144, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 12px;
         padding: 1.5rem;
         transition: all 0.3s ease;
     }
     details:hover {
-        border-color: rgba(30, 144, 255, 0.3);
+        border-color: rgba(255, 255, 255, 0.2);
     }
     summary {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 1.1rem;
         cursor: pointer;
         padding: 0.5rem 0;
@@ -1629,21 +1606,21 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         font-size: 0.9rem;
     }
     .footnote a {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         text-decoration: none;
         transition: color 0.3s ease;
     }
     .footnote a:hover {
-        color: #1E90FF;
+        color: rgba(255, 255, 255, 0.8);
     }
     .github-link {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 0.9rem;
         text-decoration: none;
         transition: color 0.3s ease;
     }
     .github-link:hover {
-        color: #1E90FF;
+        color: rgba(255, 255, 255, 0.8);
     }
     .legal-links {
         text-align: center;
@@ -1655,7 +1632,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         transition: color 0.3s ease;
     }
     .legal-links a:hover {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
     }
     .topup-pricing {
         max-width: 1000px;
@@ -1663,7 +1640,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         text-align: center;
     }
     .topup-pricing h2 {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 2rem;
         margin-bottom: 1rem;
     }
@@ -1673,7 +1650,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
     }
     .pricing-card.main {
         background: rgba(30, 30, 30, 0.8);
-        border: 1px solid rgba(30, 144, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.12);
         padding: 2rem;
         min-width: 400px;
     }
@@ -1682,7 +1659,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         justify-content: space-between;
         align-items: center;
         padding: 1rem 0;
-        border-bottom: 1px solid rgba(30, 144, 255, 0.15);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
     }
     .package-row:last-child {
         border-bottom: none;
@@ -1721,7 +1698,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         padding: 2.5rem;
     }
     .phone-number-section h2 {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 2.5rem;
         margin-bottom: 2rem;
     }
@@ -1735,19 +1712,19 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
     }
     .option-card {
         background: rgba(30, 30, 30, 0.8);
-        border: 1px solid rgba(30, 144, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 24px;
         padding: 2.5rem;
-        backdrop-filter: blur(10px);
+        backdrop-filter: none;
         transition: transform 0.3s ease, box-shadow 0.3s ease;
     }
     .option-card:hover {
         transform: translateY(-5px);
-        box-shadow: 0 8px 32px rgba(30, 144, 255, 0.15);
-        border-color: rgba(30, 144, 255, 0.3);
+        box-shadow: 0 8px 32px rgba(255, 255, 255, 0.12);
+        border-color: rgba(255, 255, 255, 0.2);
     }
     .option-card h3 {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 1.8rem;
         margin-bottom: 1rem;
     }
@@ -1761,7 +1738,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         margin: 2rem auto;
         padding: 2rem;
         background: rgba(30, 30, 30, 0.7);
-        border: 1px solid rgba(30, 144, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 16px;
         max-width: 600px;
     }
@@ -1772,7 +1749,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         margin-bottom: 0;
     }
     .extras-section h4 {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 1.3rem;
         margin-bottom: 0.5rem;
         text-align: center;
@@ -1793,7 +1770,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         justify-content: space-between;
         align-items: center;
         padding: 1rem;
-        background: rgba(30, 144, 255, 0.1);
+        background: rgba(255, 255, 255, 0.08);
         border-radius: 8px;
         margin-top: 0.5rem;
     }
@@ -1804,7 +1781,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         justify-content: center;
     }
     .quantity-selector-inline label {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 1rem;
         font-weight: 500;
         min-width: 120px;
@@ -1813,7 +1790,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         padding: 0.6rem 1rem;
         font-size: 0.95rem;
         border-radius: 8px;
-        border: 1px solid rgba(30, 144, 255, 0.3);
+        border: 1px solid rgba(255, 255, 255, 0.2);
         background: rgba(30, 30, 30, 0.9);
         color: #fff;
         cursor: pointer;
@@ -1821,7 +1798,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         min-width: 140px;
     }
     .quantity-selector-inline select:hover {
-        border-color: rgba(30, 144, 255, 0.5);
+        border-color: rgba(255, 255, 255, 0.3);
     }
     .summary-item {
         display: flex;
@@ -1830,7 +1807,7 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         gap: 0.25rem;
     }
     .summary-label {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 0.9rem;
         font-weight: 500;
     }
@@ -1844,13 +1821,13 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
         margin: 2rem auto;
         text-align: center;
         background: rgba(30, 30, 30, 0.8);
-        border: 1px solid rgba(30, 144, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 24px;
         padding: 2rem;
-        backdrop-filter: blur(10px);
+        backdrop-filter: none;
     }
     .time-value-section h2 {
-        color: #7EB2FF;
+        color: rgba(255, 255, 255, 0.7);
         font-size: 2rem;
         margin-bottom: 1rem;
     }
@@ -1886,9 +1863,9 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
                                 {format!("Note: Service may be limited or unavailable in {}. ", props.country_name.clone())}
                                 {" More info about supported countries can be checked in "}
                                 <span class="legal-links">
-                                    <a style="color: #1E90FF;" href="/supported-countries">{"Supported Countries"}</a>
+                                    <a style="color: rgba(255, 255, 255, 0.8);" href="/supported-countries">{"Supported Countries"}</a>
                                     {" or by emailing "}
-                                    <a style="color: #1E90FF;"
+                                    <a style="color: rgba(255, 255, 255, 0.8);"
                                        href={format!("mailto:rasmus@ahtava.com?subject=Country%20Availability%20Inquiry%20for%20{}&body=Hey,%0A%0AIs%20the%20service%20available%20in%20{}%3F%0A%0AThanks,%0A",
                                        props.country_name.clone(), props.country_name.clone())}>
                                         {"rasmus@ahtava.com"}
@@ -1977,29 +1954,66 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
             <div class="pricing-grid">
                 {
                     if props.selected_country == "US" || props.selected_country == "CA" {
-                        // US/CA: Show single Hosted Plan with messages included
+                        // US/CA: Show Assistant and Autopilot plans
+                        let assistant_features = vec![
+                            Feature { text: "Reminders and scheduled items".to_string(), sub_items: vec![] },
+                            Feature { text: "Contact profiles with all/digest modes".to_string(), sub_items: vec![] },
+                            Feature { text: "Daily digests".to_string(), sub_items: vec![] },
+                            Feature { text: "Manual item tracking".to_string(), sub_items: vec![] },
+                            Feature { text: "Buy more credits anytime".to_string(), sub_items: vec![] },
+                            Feature { text: "7-day one-click refund".to_string(), sub_items: vec![] },
+                        ];
+                        let autopilot_features = vec![
+                            Feature { text: "Everything in Assistant, plus:".to_string(), sub_items: vec![] },
+                            Feature { text: "Automatic message analysis".to_string(), sub_items: vec![] },
+                            Feature { text: "Background monitoring".to_string(), sub_items: vec![] },
+                            Feature { text: "Critical alerts filtering".to_string(), sub_items: vec![] },
+                            Feature { text: "Auto item creation from messages".to_string(), sub_items: vec![] },
+                            Feature { text: "7-day one-click refund".to_string(), sub_items: vec![] },
+                        ];
                         html! {
-                            <PricingCard
-                                plan_name={"Hosted Plan"}
-                                best_for={"Full-featured cloud service ready to go. Reclaim 2-4 hours per day* for just"}
-                                price={*hosted_total_price}
-                                currency={"$"}
-                                period={"/month"}
-                                features={hosted_features.clone()}
-                                subscription_type={"hosted"}
-                                is_popular={true}
-                                is_premium={false}
-                                user_id={props.user_id}
-                                user_email={props.user_email.clone()}
-                                is_logged_in={props.is_logged_in}
-
-                                sub_tier={props.sub_tier.clone()}
-                                user_plan_type={props.user_plan_type.clone()}
-                                selected_country={props.selected_country.clone()}
-                                coming_soon={false}
-                                plan_type={Some("monitor".to_string())}
-                                hosted_prices={hosted_prices.clone()}
-                            />
+                            <>
+                                <PricingCard
+                                    plan_name={"Assistant Plan"}
+                                    best_for={"Manual control. Set reminders, track items, get daily digests."}
+                                    price={19.0}
+                                    currency={"$"}
+                                    period={"/month"}
+                                    features={assistant_features}
+                                    subscription_type={"hosted"}
+                                    is_popular={false}
+                                    is_premium={false}
+                                    user_id={props.user_id}
+                                    user_email={props.user_email.clone()}
+                                    is_logged_in={props.is_logged_in}
+                                    sub_tier={props.sub_tier.clone()}
+                                    user_plan_type={props.user_plan_type.clone()}
+                                    selected_country={props.selected_country.clone()}
+                                    coming_soon={false}
+                                    plan_type={Some("assistant".to_string())}
+                                    hosted_prices={hosted_prices.clone()}
+                                />
+                                <PricingCard
+                                    plan_name={"Autopilot Plan"}
+                                    best_for={"Automatic intelligence. Lightfriend processes your messages for you."}
+                                    price={29.0}
+                                    currency={"$"}
+                                    period={"/month"}
+                                    features={autopilot_features}
+                                    subscription_type={"hosted"}
+                                    is_popular={true}
+                                    is_premium={false}
+                                    user_id={props.user_id}
+                                    user_email={props.user_email.clone()}
+                                    is_logged_in={props.is_logged_in}
+                                    sub_tier={props.sub_tier.clone()}
+                                    user_plan_type={props.user_plan_type.clone()}
+                                    selected_country={props.selected_country.clone()}
+                                    coming_soon={false}
+                                    plan_type={Some("autopilot".to_string())}
+                                    hosted_prices={hosted_prices.clone()}
+                                />
+                            </>
                         }
                     } else if props.selected_country == "Other" {
                         // Other countries: BYOT Plan only (bring your own Twilio)
@@ -2035,59 +2049,42 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
                             </PricingCard>
                         }
                     } else {
-                        // Euro countries: Show Monitor and Digest plans
-                        // Both plans have ALL features - they only differ in prepaid message count
-                        let is_local_number_country = matches!(props.selected_country.as_str(), "FI" | "NL" | "GB" | "AU");
+                        // Euro countries: Show Assistant and Autopilot plans
                         let is_notification_only = is_notification_only_country(&props.selected_country);
 
-                        let base_features: Vec<Feature> = if is_local_number_country {
-                            vec![
-                                Feature { text: "Local phone number included".to_string(), sub_items: vec![] },
-                                Feature { text: "All features included".to_string(), sub_items: vec![] },
-                                Feature { text: "7-day one-click refund, no questions asked".to_string(), sub_items: vec![] },
-                            ]
-                        } else {
-                            // Notification-only countries - reframe as proactive-first
-                            vec![
-                                Feature {
-                                    text: "Proactive notifications".to_string(),
-                                    sub_items: vec![
-                                        "Choose sender: US, CA, FI, NL, GB, or AU number".to_string(),
-                                        "Texting back possible (international rates may apply)".to_string()
-                                    ]
-                                },
-                                Feature { text: "All features included".to_string(), sub_items: vec![] },
-                                Feature { text: "7-day one-click refund, no questions asked".to_string(), sub_items: vec![] },
-                            ]
-                        };
-
-                        let mut monitor_features = base_features.clone();
-                        monitor_features.push(Feature { text: "Go off-grid knowing critical alerts reach you".to_string(), sub_items: vec![] });
-                        monitor_features.push(Feature { text: "Fixed monthly quota (no overage credits)".to_string(), sub_items: vec![] });
-
-                        let mut digest_features = base_features;
-                        digest_features.push(Feature { text: "Eliminates FOMO - stay caught up without checking".to_string(), sub_items: vec![] });
-                        digest_features.push(Feature { text: "Can purchase overage credits if needed".to_string(), sub_items: vec![] });
+                        let assistant_features = vec![
+                            Feature { text: "Reminders and scheduled items".to_string(), sub_items: vec![] },
+                            Feature { text: "Contact profiles with all/digest modes".to_string(), sub_items: vec![] },
+                            Feature { text: "Daily digests".to_string(), sub_items: vec![] },
+                            Feature { text: "Manual item tracking".to_string(), sub_items: vec![] },
+                            Feature { text: "Buy more credits anytime".to_string(), sub_items: vec![] },
+                            Feature { text: "7-day one-click refund".to_string(), sub_items: vec![] },
+                        ];
+                        let autopilot_features = vec![
+                            Feature { text: "Everything in Assistant, plus:".to_string(), sub_items: vec![] },
+                            Feature { text: "Automatic message analysis".to_string(), sub_items: vec![] },
+                            Feature { text: "Background monitoring".to_string(), sub_items: vec![] },
+                            Feature { text: "Critical alerts filtering".to_string(), sub_items: vec![] },
+                            Feature { text: "Auto item creation from messages".to_string(), sub_items: vec![] },
+                            Feature { text: "7-day one-click refund".to_string(), sub_items: vec![] },
+                        ];
 
                         let byot_features = vec![
                             Feature { text: "Bring your own Twilio number".to_string(), sub_items: vec![] },
-                            Feature { text: "All features included".to_string(), sub_items: vec![] },
+                            Feature { text: "All Autopilot features included".to_string(), sub_items: vec![] },
                             Feature { text: "No message limits - pay Twilio directly".to_string(), sub_items: vec![] },
-                            Feature { text: "7-day one-click refund, no questions asked".to_string(), sub_items: vec![] },
+                            Feature { text: "7-day one-click refund".to_string(), sub_items: vec![] },
                         ];
-
-                        let selected_country_clone = props.selected_country.clone();
-                        let selected_country_clone2 = props.selected_country.clone();
 
                         html! {
                             <>
                                 <PricingCard
-                                    plan_name={"Monitor Plan"}
-                                    best_for={"Peace of mind. Get alerted to what matters, ignore the rest."}
+                                    plan_name={"Assistant Plan"}
+                                    best_for={"Manual control. Set reminders, track items, get daily digests."}
                                     price={29.0}
                                     currency={"€"}
                                     period={"/month"}
-                                    features={monitor_features}
+                                    features={assistant_features}
                                     subscription_type={"hosted"}
                                     is_popular={false}
                                     is_premium={false}
@@ -2100,20 +2097,15 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
                                     selected_country={props.selected_country.clone()}
                                     coming_soon={false}
                                     hosted_prices={hosted_prices.clone()}
-                                    plan_type={Some("monitor".to_string())}
-                                >
-                                    <MessageEquivalentDisplay
-                                        plan_messages={40}
-                                        country={selected_country_clone}
-                                    />
-                                </PricingCard>
+                                    plan_type={Some("assistant".to_string())}
+                                />
                                 <PricingCard
-                                    plan_name={"Digest Plan"}
-                                    best_for={"Stay informed without the urge to check. Regular updates keep you ahead."}
+                                    plan_name={"Autopilot Plan"}
+                                    best_for={"Automatic intelligence. Lightfriend processes your messages for you."}
                                     price={49.0}
                                     currency={"€"}
                                     period={"/month"}
-                                    features={digest_features}
+                                    features={autopilot_features}
                                     subscription_type={"hosted"}
                                     is_popular={true}
                                     is_premium={false}
@@ -2126,13 +2118,8 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
                                     selected_country={props.selected_country.clone()}
                                     coming_soon={false}
                                     hosted_prices={hosted_prices.clone()}
-                                    plan_type={Some("digest".to_string())}
-                                >
-                                    <MessageEquivalentDisplay
-                                        plan_messages={120}
-                                        country={selected_country_clone2}
-                                    />
-                                </PricingCard>
+                                    plan_type={Some("autopilot".to_string())}
+                                />
                                 // Show BYOT option for notification-only countries (they may want their own local number)
                                 if is_notification_only {
                                     <PricingCard
@@ -2174,11 +2161,11 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
                                 <>
                                 <details>
                                     <summary>{"How does billing work?"}</summary>
-                                    <p>{"Plans bill monthly. Hosted Plan includes everything from phone number to 400 messages per month in the US and Canada. No hidden fees. One-click refund available in your dashboard within 7 days if you've used less than 30% - no questions asked."}</p>
+                                    <p>{"Plans bill monthly. Both plans include the same generous message allowance. No hidden fees. One-click refund available in your dashboard within 7 days if you've used less than 30%."}</p>
                                 </details>
                                 <details>
-                                    <summary>{"What counts as a Message?"}</summary>
-                                    <p>{"Voice calls (1 min = 1 Message), text queries (1 query = 1 Message), daily digests (1 digest = 1 Message), priority sender notifications (1 notification = 1/2 Message)."}</p>
+                                    <summary>{"What's the difference between Assistant and Autopilot?"}</summary>
+                                    <p>{"Assistant gives you manual control: reminders, contact profiles, daily digests. Autopilot adds automatic intelligence: Lightfriend reads your incoming messages, filters by urgency, creates items automatically, and monitors for updates."}</p>
                                 </details>
                                 </>
                             }
@@ -2187,15 +2174,15 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
                                 <>
                                 <details>
                                     <summary>{"How does billing work?"}</summary>
-                                    <p>{"Plans bill monthly. Monitor (€29) includes 40 credits. Digest (€49) includes 120 credits. Phone number included. No hidden fees. One-click refund available in your dashboard within 7 days if you've used less than 30% - no questions asked."}</p>
+                                    <p>{"Plans bill monthly. Assistant (29 EUR) and Autopilot (49 EUR) both include the same message credits. Phone number included. No hidden fees. One-click refund within 7 days."}</p>
                                 </details>
                                 <details>
-                                    <summary>{"What's the difference between Monitor and Digest?"}</summary>
-                                    <p>{"Monitor is for critical notifications only - you get 40 credits and cannot buy more. Digest includes 120 credits with the ability to purchase additional credits when needed, perfect for daily summaries and regular use."}</p>
+                                    <summary>{"What's the difference between Assistant and Autopilot?"}</summary>
+                                    <p>{"Assistant gives you manual control: reminders, contact profiles, daily digests. Autopilot adds automatic intelligence: Lightfriend reads your incoming messages, filters by urgency, creates items automatically, and monitors for updates."}</p>
                                 </details>
                                 <details>
                                     <summary>{"How do credits work?"}</summary>
-                                    <p>{"Different message types cost different amounts: notifications cost less than responses, which cost less than digests. The exact pricing is shown above based on your country's SMS rates. Digest plan users can purchase additional credits when needed."}</p>
+                                    <p>{"Different message types cost different amounts based on your country's SMS rates. Both plans can purchase additional credits when needed."}</p>
                                 </details>
                                 </>
                             }
@@ -2204,15 +2191,15 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
                                 <>
                                 <details>
                                     <summary>{"How does billing work?"}</summary>
-                                    <p>{"Plans bill monthly. Monitor (€29) includes 40 credits. Digest (€49) includes 120 credits. Messages sent from a US number. No hidden fees. One-click refund available in your dashboard within 7 days if you've used less than 30% - no questions asked."}</p>
+                                    <p>{"Plans bill monthly. Assistant (29 EUR) and Autopilot (49 EUR) both include the same message credits. Messages sent from a US number. No hidden fees. One-click refund within 7 days."}</p>
                                 </details>
                                 <details>
-                                    <summary>{"What's the difference between Monitor and Digest?"}</summary>
-                                    <p>{"Monitor is for critical notifications only - you get 40 credits and cannot buy more. Digest includes 120 credits with the ability to purchase additional credits when needed, perfect for daily summaries and regular use."}</p>
+                                    <summary>{"What's the difference between Assistant and Autopilot?"}</summary>
+                                    <p>{"Assistant gives you manual control: reminders, contact profiles, daily digests. Autopilot adds automatic intelligence: Lightfriend reads your incoming messages, filters by urgency, creates items automatically, and monitors for updates."}</p>
                                 </details>
                                 <details>
                                     <summary>{"How do credits work?"}</summary>
-                                    <p>{"Different message types cost different amounts: notifications cost less than digests. Voice calls also use credits. The exact pricing is shown above based on your country's SMS rates. Digest plan users can purchase additional credits when needed."}</p>
+                                    <p>{"Different message types cost different amounts based on your country's SMS rates. Both plans can purchase additional credits when needed."}</p>
                                 </details>
                                 <details>
                                     <summary>{"Can I bring my own phone number?"}</summary>
@@ -2221,10 +2208,6 @@ pub fn unified_pricing(props: &PricingProps) -> Html {
                                 <details>
                                     <summary>{"Do I need to text back?"}</summary>
                                     <p>{"Rarely! Lightfriend is proactive-first - it monitors your emails, calendar, and messages, then notifies you about what matters. You can ask questions via web chat or voice calls from the dashboard anytime."}</p>
-                                </details>
-                                <details>
-                                    <summary>{"What can I do from the dashboard?"}</summary>
-                                    <p>{"The web dashboard lets you chat with the AI, make voice calls, control your Tesla (climate, locks, charging), configure all proactive features, and soon watch videos from links friends share - all without texting."}</p>
                                 </details>
                                 </>
                             }

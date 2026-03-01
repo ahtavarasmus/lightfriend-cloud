@@ -1,11 +1,16 @@
 use yew::prelude::*;
 use yew_router::prelude::*;
 use crate::Route;
-
-
+use crate::utils::seo::{use_seo, SeoMeta};
 
 #[function_component(PrivacyPolicy)]
 pub fn privacy_policy() -> Html {
+    use_seo(SeoMeta {
+        title: "Privacy Policy \u{2013} Lightfriend",
+        description: "How Lightfriend protects your data. AES-256 encryption, no data selling, GDPR compliant. Learn about our privacy practices for the AI dumbphone assistant.",
+        canonical: "https://lightfriend.ai/privacy",
+        og_type: "website",
+    });
     html! {
         <div class="legal-content privacy-policy">
             <h1>{"Privacy Policy"}</h1>
@@ -19,7 +24,7 @@ pub fn privacy_policy() -> Html {
                     <li>{"User-provided profile information (for AI assistant personalization)"}</li>
                     <li>{"Access tokens used to access the integrations you setup"}</li>
                     <li>{"Location coordinates (latitude/longitude) for calculating sunrise/sunset times"}</li>
-                    <li>{"AI-generated triage items (attention summaries, suggested actions, priority levels)"}</li>
+                    <li>{"AI-generated attention items (attention summaries, suggested actions, priority levels)"}</li>
                     <li>{"MCP server configuration data (server URLs, authentication tokens)"}</li>
                 </ul>
             </section>
@@ -63,9 +68,9 @@ pub fn privacy_policy() -> Html {
                     <li>{"Personalize responses based on your profile information"}</li>
                     <li>{"Provide context-aware assistance during calls"}</li>
                     <li>{"Improve service quality"}</li>
-                    <li>{"Automatically generate triage items that flag messages and events needing your attention"}</li>
-                    <li>{"Triage items include AI-generated summaries, suggested actions, reasoning, and contextual data"}</li>
-                    <li>{"Triage items are stored until dismissed, actioned, or expired"}</li>
+                    <li>{"Automatically generate attention items that flag messages and events needing your attention"}</li>
+                    <li>{"Attention items include AI-generated summaries, suggested actions, reasoning, and contextual data"}</li>
+                    <li>{"Attention items are stored until dismissed, actioned, or expired"}</li>
                 </ul>
             </section>
 
@@ -193,6 +198,12 @@ pub fn privacy_policy() -> Html {
 
 #[function_component(TermsAndConditions)]
 pub fn terms_and_conditions() -> Html {
+    use_seo(SeoMeta {
+        title: "Terms and Conditions \u{2013} Lightfriend",
+        description: "Terms and conditions for using Lightfriend AI assistant service. Service terms, data handling, and user agreements.",
+        canonical: "https://lightfriend.ai/terms",
+        og_type: "website",
+    });
     html! {
         <div class="legal-content terms-and-conditions">
             <h1>{"lightfriend Terms and Conditions"}</h1>

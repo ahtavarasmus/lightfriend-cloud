@@ -113,14 +113,13 @@ diesel::table! {
 }
 
 diesel::table! {
-    digests (id) {
+    daily_checkins (id) {
         id -> Nullable<Integer>,
         user_id -> Integer,
-        time -> Text,
-        tools -> Text,
-        tool_params -> Nullable<Text>,
-        enabled -> Integer,
-        last_sent_at -> Nullable<Integer>,
+        checkin_date -> Text,
+        mood -> Integer,
+        energy -> Integer,
+        sleep_quality -> Integer,
         created_at -> Integer,
     }
 }
@@ -172,6 +171,19 @@ diesel::table! {
         expires_in -> Integer,
         imap_server -> Nullable<Text>,
         imap_port -> Nullable<Integer>,
+    }
+}
+
+diesel::table! {
+    items (id) {
+        id -> Nullable<Integer>,
+        user_id -> Integer,
+        summary -> Text,
+        monitor -> Bool,
+        next_check_at -> Nullable<Integer>,
+        priority -> Integer,
+        source_id -> Nullable<Text>,
+        created_at -> Integer,
     }
 }
 
@@ -344,25 +356,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    triage_items (id) {
-        id -> Nullable<Integer>,
-        user_id -> Integer,
-        item_type -> Text,
-        status -> Text,
-        summary -> Text,
-        suggested_action -> Nullable<Text>,
-        reasoning -> Nullable<Text>,
-        context_json -> Nullable<Text>,
-        priority -> Integer,
-        source_type -> Nullable<Text>,
-        source_id -> Nullable<Text>,
-        created_at -> Integer,
-        snooze_until -> Nullable<Integer>,
-        expires_at -> Nullable<Integer>,
-    }
-}
-
-diesel::table! {
     uber (id) {
         id -> Nullable<Integer>,
         user_id -> Integer,
@@ -453,6 +446,10 @@ diesel::table! {
         phone_contact_notification_mode -> Nullable<Text>,
         phone_contact_notification_type -> Nullable<Text>,
         phone_contact_notify_on_call -> Integer,
+        dumbphone_mode_on -> Integer,
+        notification_calmer_on -> Integer,
+        notification_calmer_schedule -> Nullable<Text>,
+        wellbeing_signup_timestamp -> Nullable<Integer>,
     }
 }
 
@@ -532,6 +529,29 @@ diesel::table! {
 }
 
 diesel::table! {
+    wellbeing_point_events (id) {
+        id -> Nullable<Integer>,
+        user_id -> Integer,
+        event_type -> Text,
+        points_earned -> Integer,
+        event_date -> Text,
+        created_at -> Integer,
+    }
+}
+
+diesel::table! {
+    wellbeing_points (id) {
+        id -> Nullable<Integer>,
+        user_id -> Integer,
+        points -> Integer,
+        current_streak -> Integer,
+        longest_streak -> Integer,
+        last_activity_date -> Nullable<Text>,
+        created_at -> Integer,
+    }
+}
+
+diesel::table! {
     youtube (id) {
         id -> Nullable<Integer>,
         user_id -> Integer,
@@ -551,8 +571,9 @@ diesel::joinable!(calendar_notifications -> users (user_id));
 diesel::joinable!(contact_profile_exceptions -> contact_profiles (profile_id));
 diesel::joinable!(contact_profiles -> users (user_id));
 diesel::joinable!(conversations -> users (user_id));
-diesel::joinable!(digests -> users (user_id));
+diesel::joinable!(daily_checkins -> users (user_id));
 diesel::joinable!(imap_connection -> users (user_id));
+diesel::joinable!(items -> users (user_id));
 diesel::joinable!(keywords -> users (user_id));
 diesel::joinable!(mcp_servers -> users (user_id));
 diesel::joinable!(message_history -> users (user_id));
@@ -563,11 +584,12 @@ diesel::joinable!(tasks -> users (user_id));
 diesel::joinable!(tesla -> users (user_id));
 diesel::joinable!(totp_backup_codes -> users (user_id));
 diesel::joinable!(totp_secrets -> users (user_id));
-diesel::joinable!(triage_items -> users (user_id));
 diesel::joinable!(user_info -> users (user_id));
 diesel::joinable!(user_settings -> users (user_id));
 diesel::joinable!(webauthn_challenges -> users (user_id));
 diesel::joinable!(webauthn_credentials -> users (user_id));
+diesel::joinable!(wellbeing_point_events -> users (user_id));
+diesel::joinable!(wellbeing_points -> users (user_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     admin_alerts,
@@ -579,11 +601,12 @@ diesel::allow_tables_to_appear_in_same_query!(
     conversations,
     country_availability,
     critical_categories,
-    digests,
+    daily_checkins,
     disabled_alert_types,
     email_judgments,
     google_calendar,
     imap_connection,
+    items,
     keywords,
     mcp_servers,
     message_history,
@@ -597,7 +620,6 @@ diesel::allow_tables_to_appear_in_same_query!(
     tesla,
     totp_backup_codes,
     totp_secrets,
-    triage_items,
     uber,
     usage_logs,
     user_info,
@@ -606,5 +628,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     waitlist,
     webauthn_challenges,
     webauthn_credentials,
+    wellbeing_point_events,
+    wellbeing_points,
     youtube,
 );

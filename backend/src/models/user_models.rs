@@ -5,9 +5,11 @@ use crate::schema::contact_profile_exceptions;
 use crate::schema::contact_profiles;
 use crate::schema::conversations;
 use crate::schema::country_availability;
+use crate::schema::daily_checkins;
 use crate::schema::email_judgments;
 use crate::schema::google_calendar;
 use crate::schema::imap_connection;
+use crate::schema::items;
 use crate::schema::keywords;
 use crate::schema::message_history;
 use crate::schema::message_status_log;
@@ -17,7 +19,6 @@ use crate::schema::subaccounts;
 use crate::schema::tasks;
 use crate::schema::totp_backup_codes;
 use crate::schema::totp_secrets;
-use crate::schema::triage_items;
 use crate::schema::uber;
 use crate::schema::usage_logs;
 use crate::schema::user_info;
@@ -26,6 +27,8 @@ use crate::schema::users;
 use crate::schema::waitlist;
 use crate::schema::webauthn_challenges;
 use crate::schema::webauthn_credentials;
+use crate::schema::wellbeing_point_events;
+use crate::schema::wellbeing_points;
 use crate::schema::youtube;
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -63,7 +66,7 @@ pub struct User {
     pub waiting_checks_count: i32, // how many waiting checks the user currently has(max 5 is possible)
     pub next_billing_date_timestamp: Option<i32>, // when is user next billed for their subscription
     pub magic_token: Option<String>, // token for magic link login/password setup
-    pub plan_type: Option<String>, // "monitor" or "digest" for euro plan users, NULL for US/CA
+    pub plan_type: Option<String>, // "assistant", "autopilot", or "byot"
     pub matrix_e2ee_enabled: bool, // whether E2EE is enabled for Matrix messaging
     pub migrated_to_new_server: bool, // whether user has migrated to new AWS server
     pub last_backup_at: Option<i32>, // Unix timestamp of last backup
@@ -566,6 +569,10 @@ pub struct UserSettings {
     pub phone_contact_notification_mode: Option<String>, // "critical", "digest", or "ignore" - for phone contacts without a profile
     pub phone_contact_notification_type: Option<String>, // "sms" or "call" - notification type for phone contacts
     pub phone_contact_notify_on_call: i32, // 1 = notify on incoming calls from phone contacts, 0 = don't
+    pub dumbphone_mode_on: i32,            // 0 = off, 1 = on - dumbphone mode (calls & SMS only)
+    pub notification_calmer_on: i32,       // 0 = off, 1 = on - notification calmer
+    pub notification_calmer_schedule: Option<String>, // "2x" or "3x" per day
+    pub wellbeing_signup_timestamp: Option<i32>, // when user first enabled wellbeing features
 }
 
 #[derive(Insertable)]
@@ -913,41 +920,102 @@ pub struct NewSiteMetric {
     pub updated_at: i32,
 }
 
-// Triage items - AI decision queue for user actions
+// Unified items
 #[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
-#[diesel(table_name = triage_items)]
+#[diesel(table_name = items)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
-pub struct TriageItem {
+pub struct Item {
     pub id: Option<i32>,
     pub user_id: i32,
-    pub item_type: String, // "message_reply", "bridge_disconnected", "action_approval"
-    pub status: String,    // "pending", "snoozed", "completed", "dismissed", "expired"
     pub summary: String,
-    pub suggested_action: Option<String>,
-    pub reasoning: Option<String>,
-    pub context_json: Option<String>,
-    pub priority: i32,               // 0=normal, 1=elevated, 2=urgent
-    pub source_type: Option<String>, // "bridge_message", "email", "system"
-    pub source_id: Option<String>,   // room_id, email_uid, etc.
+    pub monitor: bool,
+    pub next_check_at: Option<i32>,
+    pub priority: i32,
+    pub source_id: Option<String>,
     pub created_at: i32,
-    pub snooze_until: Option<i32>,
-    pub expires_at: Option<i32>,
 }
 
 #[derive(Insertable, Debug)]
-#[diesel(table_name = triage_items)]
-pub struct NewTriageItem {
+#[diesel(table_name = items)]
+pub struct NewItem {
     pub user_id: i32,
-    pub item_type: String,
-    pub status: String,
     pub summary: String,
-    pub suggested_action: Option<String>,
-    pub reasoning: Option<String>,
-    pub context_json: Option<String>,
+    pub monitor: bool,
+    pub next_check_at: Option<i32>,
     pub priority: i32,
-    pub source_type: Option<String>,
     pub source_id: Option<String>,
     pub created_at: i32,
-    pub snooze_until: Option<i32>,
-    pub expires_at: Option<i32>,
+}
+
+// Daily Check-in models
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[diesel(table_name = daily_checkins)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct DailyCheckin {
+    pub id: Option<i32>,
+    pub user_id: i32,
+    pub checkin_date: String,
+    pub mood: i32,
+    pub energy: i32,
+    pub sleep_quality: i32,
+    pub created_at: i32,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = daily_checkins)]
+pub struct NewDailyCheckin {
+    pub user_id: i32,
+    pub checkin_date: String,
+    pub mood: i32,
+    pub energy: i32,
+    pub sleep_quality: i32,
+    pub created_at: i32,
+}
+
+// Wellbeing Points models
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[diesel(table_name = wellbeing_points)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct WellbeingPoints {
+    pub id: Option<i32>,
+    pub user_id: i32,
+    pub points: i32,
+    pub current_streak: i32,
+    pub longest_streak: i32,
+    pub last_activity_date: Option<String>,
+    pub created_at: i32,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = wellbeing_points)]
+pub struct NewWellbeingPoints {
+    pub user_id: i32,
+    pub points: i32,
+    pub current_streak: i32,
+    pub longest_streak: i32,
+    pub last_activity_date: Option<String>,
+    pub created_at: i32,
+}
+
+// Wellbeing Point Event models
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, Serialize, Deserialize)]
+#[diesel(table_name = wellbeing_point_events)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct WellbeingPointEvent {
+    pub id: Option<i32>,
+    pub user_id: i32,
+    pub event_type: String,
+    pub points_earned: i32,
+    pub event_date: String,
+    pub created_at: i32,
+}
+
+#[derive(Insertable, Debug)]
+#[diesel(table_name = wellbeing_point_events)]
+pub struct NewWellbeingPointEvent {
+    pub user_id: i32,
+    pub event_type: String,
+    pub points_earned: i32,
+    pub event_date: String,
+    pub created_at: i32,
 }
